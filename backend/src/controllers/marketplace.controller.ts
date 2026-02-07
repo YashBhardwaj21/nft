@@ -248,3 +248,65 @@ export const deleteListing = async (req: Request, res: Response) => {
         });
     }
 };
+
+/**
+ * List an NFT for rent
+ */
+export const listForRent = async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+        const { price, duration } = req.body;
+        // req.user is added by protect middleware
+        const userId = (req as any).user.id;
+
+        // 1. Find NFT
+        const nft = await NFTModel.findOne({ id });
+        if (!nft) {
+            return res.status(404).json({ status: 'error', error: 'NFT not found' });
+        }
+
+        // 2. Check Ownership
+        if (nft.owner !== userId) {
+            return res.status(403).json({ status: 'error', error: 'Not authorized. You do not own this NFT.' });
+        }
+
+        // 3. Check if already rented
+        if (nft.status === 'rented' || nft.isEscrowed) {
+            return res.status(400).json({ status: 'error', error: 'NFT is currently rented or in escrow.' });
+        }
+
+        // 4. Create Listing (Type 'rent')
+        // Remove any existing active listings for this NFT to avoid duplicates
+        await ListingModel.deleteMany({ nftId: id, status: 'active' });
+
+        const newListing = await ListingModel.create({
+            id: Date.now().toString(),
+            nftId: id,
+            sellerId: userId,
+            price: price.toString(),
+            rentalPrice: price.toString(),
+            currency: 'ETH',
+            duration: Number(duration),
+            type: 'rent',
+            status: 'active',
+            createdAt: new Date()
+        });
+
+        // 5. Update NFT
+        nft.status = 'listing';
+        nft.rentalPrice = Number(price);
+        nft.maxDuration = Number(duration);
+        nft.isEscrowed = false; // Not escrowed yet, just listed
+        await nft.save();
+
+        res.status(201).json({
+            status: 'success',
+            data: newListing,
+            message: 'NFT listed for rent successfully'
+        });
+
+    } catch (error: any) {
+        console.error("List for rent error:", error);
+        res.status(500).json({ status: 'error', error: error.message });
+    }
+};

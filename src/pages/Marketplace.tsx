@@ -1,6 +1,6 @@
 
 import { useState, useEffect } from "react";
-import { ArrowUpDown, Filter, Flame, Grid2X2, Search, SlidersHorizontal, Sparkles, Loader2 } from "lucide-react";
+import { ArrowUpDown, Flame, Grid2X2, Search, Sparkles } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import NFTCard from "../components/ui/nft-card";

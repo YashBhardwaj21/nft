@@ -9,11 +9,16 @@ const nftSchema = new mongoose.Schema<NFT>({
     owner: { type: String, required: true, ref: 'User' }, // Reference to User ID
     collection: { type: String, required: true },
     creator: { type: String, required: true },
-    price: { type: String, required: true },
-    rentalPrice: { type: String, required: true },
+    price: { type: Number, required: true }, // Changed to Number for calcs
+    rentalPrice: { type: Number, default: 0 },
+    maxDuration: { type: Number, default: 30 }, // Max days for rent
     currency: { type: String, default: 'ETH' },
+
+    // Rental Status & Escrow Logic
     status: { type: String, enum: ['available', 'rented', 'listing'], default: 'available' },
-    likes: { type: Number, default: 0 },
+    isEscrowed: { type: Boolean, default: false }, // TRUE when rented
+    renterWallet: { type: String, ref: 'User', default: null }, // Linked to User ID
+    expiresAt: { type: Date, default: null }, // Auto-return date
     views: { type: Number, default: 0 },
     timeLeft: { type: String },
     rentalEndDate: { type: Date },

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
+
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Plus, TrendingUp, Clock, Wallet, LayoutGrid, Loader2 } from 'lucide-react';
 import NFTCard from '@/components/ui/nft-card';
@@ -9,6 +9,7 @@ import { useAuth } from '../context/AuthContext';
 import api from '../api/client';
 import { NFT } from '../types';
 import { toast } from 'sonner';
+import RentListingModal from '@/components/rentals/RentListingModal';
 
 const MyNFTs = () => {
   const { user, isAuthenticated, loading: authLoading } = useAuth();
@@ -17,8 +18,13 @@ const MyNFTs = () => {
   const [activeTab, setActiveTab] = useState('owned');
   const [ownedNFTs, setOwnedNFTs] = useState<NFT[]>([]);
   const [rentedNFTs, setRentedNFTs] = useState<NFT[]>([]);
-  const [activeListings, setActiveListings] = useState<any[]>([]); // Listing type to be defined ideally
+  const [activeListings, setActiveListings] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Rental Modal State
+  const [isRentModalOpen, setIsRentModalOpen] = useState(false);
+  const [selectedNftForRent, setSelectedNftForRent] = useState<NFT | null>(null);
+
   const [stats, setStats] = useState({
     totalNFTs: 0,
     totalValue: '0',
@@ -86,6 +92,32 @@ const MyNFTs = () => {
     );
   }
 
+  const handleListForRent = (nft: NFT) => {
+    setSelectedNftForRent(nft);
+    setIsRentModalOpen(true);
+  };
+
+  const handleReturn = async (nftId: string) => {
+    try {
+      await api.put(`/rentals/return/${nftId}`);
+      toast.success("NFT Returned successfully");
+      fetchUserData();
+    } catch (e: any) {
+      console.error(e);
+      toast.error(e.response?.data?.error || "Failed to return NFT");
+    }
+  };
+
+  const handleAction = (action: string, id: string) => {
+    if (action === 'list') {
+      const nft = ownedNFTs.find(n => n.id === id);
+      if (nft) handleListForRent(nft);
+    } else if (action === 'return') {
+      // For return, we now just pass the NFT ID directly
+      handleReturn(id);
+    }
+  };
+
   return (
     <div className="space-y-8">
       {/* Header */}
@@ -118,7 +150,7 @@ const MyNFTs = () => {
       </div>
 
       {/* Tabs Content */}
-      <Tabs defaultValue="owned" className="w-full" onValueChange={setActiveTab}>
+      <Tabs value={activeTab} className="w-full" onValueChange={setActiveTab}>
         <TabsList className="bg-white/5 border border-white/5 p-1 rounded-xl mb-8 w-full max-w-md">
           <TabsTrigger value="owned" className="flex-1 rounded-lg data-[state=active]:bg-primary/20 data-[state=active]:text-primary">
             Owned
@@ -138,7 +170,7 @@ const MyNFTs = () => {
                 key={nft.id}
                 nft={nft}
                 status="owned"
-                onAction={(action, id) => console.log(action, id)}
+                onAction={handleAction}
               />
             ))}
             {/* Add New Placeholder */}
@@ -163,7 +195,7 @@ const MyNFTs = () => {
                 key={nft.id}
                 nft={nft}
                 status="rented"
-                onAction={(action, id) => console.log(action, id)}
+                onAction={handleAction}
               />
             ))}
           </div>
@@ -183,7 +215,7 @@ const MyNFTs = () => {
                   key={listing.id}
                   nft={{ ...listing.nft, price: listing.price, rentalPrice: listing.rentalPrice }}
                   status="listing"
-                  onAction={(action, id) => console.log(action, id)}
+                  onAction={handleAction}
                 />
               ))}
             </div>
@@ -203,6 +235,16 @@ const MyNFTs = () => {
           )}
         </TabsContent>
       </Tabs>
+      <RentListingModal
+        isOpen={isRentModalOpen}
+        onClose={() => setIsRentModalOpen(false)}
+        nft={selectedNftForRent}
+        onSuccess={() => {
+          fetchUserData();
+          setIsRentModalOpen(false);
+          toast.success("Listing created successfully");
+        }}
+      />
     </div>
   );
 };

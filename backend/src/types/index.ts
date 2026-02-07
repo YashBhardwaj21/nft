@@ -8,10 +8,14 @@ export interface NFT {
     owner: string;
     collection: string;
     creator: string;
-    price: string;
-    rentalPrice?: string;
+    price: number; // Changed to number
+    rentalPrice?: number; // Changed to number
+    maxDuration?: number; // New
     currency: string;
-    status: 'available' | 'rented' | 'listing' | 'listed'; // Added listing to match frontend/controller usage
+    status: 'available' | 'rented' | 'listing' | 'listed';
+    isEscrowed?: boolean; // New
+    renterWallet?: string; // New
+    expiresAt?: Date; // New
     likes: number;
     views?: number;
     metadata?: Record<string, any>;
@@ -26,7 +30,8 @@ export interface Rental {
     nftId: string;
     renterId: string;
     ownerId: string;
-    rentalPrice: string;
+    rentalPrice: number; // Changed to number
+    duration: number;
     currency: string;
     startDate: Date;
     endDate: Date;
@@ -42,6 +47,7 @@ export interface Listing {
     price: string;
     rentalPrice?: string;
     currency: string;
+    type: 'sale' | 'rent'; // New
     duration?: number; // in days
     status: 'active' | 'sold' | 'cancelled';
     views: number;

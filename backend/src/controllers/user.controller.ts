@@ -14,7 +14,7 @@ export const getUserStats = async (req: Request, res: Response) => {
         const userNFTs = await NFTModel.find({ owner: id });
 
         // Calculate total value
-        const totalValue = userNFTs.reduce((sum, nft) => sum + parseFloat(nft.price), 0);
+        const totalValue = userNFTs.reduce((sum, nft) => sum + (nft.price || 0), 0);
 
         // Count active listings (NFTs available for rent)
         const activeListings = userNFTs.filter(nft => nft.status === 'available').length;
@@ -66,17 +66,18 @@ export const getOwnedNFTs = async (req: Request, res: Response) => {
 /**
  * Get user's rented NFTs
  */
+/**
+ * Get user's rented NFTs
+ */
 export const getRentedNFTs = async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
 
-        // TODO: Implement join with Rentals table
-        // For now returning empty or mock if needed, but keeping it clean for DB integration
-        // This requires a RentalModel which we haven't created yet or logic to find rentals where renterId === id 
-        // and then populate NFT. 
-        // Temporary: return empty array until Rental model is ready
-
-        const rentedNFTs: any[] = [];
+        // Model A: Query NFT collection directly for renterWallet
+        const rentedNFTs = await NFTModel.find({
+            renterWallet: id,
+            status: 'rented'
+        });
 
         res.status(200).json({
             status: 'success',

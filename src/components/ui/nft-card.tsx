@@ -11,6 +11,9 @@ interface NFTCardProps {
 }
 
 const NFTCard = ({ nft, status = 'listing', onAction }: NFTCardProps) => {
+    // Determine if this is an owned NFT that is currently rented out
+    const isRentedOut = status === 'owned' && (nft.status === 'rented' || nft.isEscrowed);
+
     return (
         <Card className="group relative overflow-hidden border border-indigo-500/20 bg-gradient-to-b from-[#1a1b2e] to-[#16172b] hover:border-indigo-500/50 transition-all duration-500 hover:shadow-2xl hover:shadow-indigo-500/20 hover:-translate-y-2">
 
@@ -40,20 +43,25 @@ const NFTCard = ({ nft, status = 'listing', onAction }: NFTCardProps) => {
                             Rented
                         </Badge>
                     )}
-                    {status === 'owned' && (
+                    {status === 'owned' && !isRentedOut && (
                         <Badge variant="secondary" className="backdrop-blur-md bg-emerald-500/20 text-emerald-300 border-emerald-500/30">
                             Owned
+                        </Badge>
+                    )}
+                    {isRentedOut && (
+                        <Badge variant="outline" className="backdrop-blur-md bg-yellow-500/20 text-yellow-300 border-yellow-500/30">
+                            Rented Out
                         </Badge>
                     )}
                 </div>
 
                 {/* Bottom Info Overlay */}
-                {(nft.timeLeft || status === 'listing') && (
+                {(nft.timeLeft || status === 'listing' || isRentedOut) && (
                     <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between">
-                        {nft.timeLeft && (
+                        {(nft.timeLeft || nft.rentalEndDate) && (
                             <div className="px-3 py-1.5 rounded-full bg-black/60 backdrop-blur-md text-xs font-medium text-white flex items-center gap-1.5 border border-white/10">
                                 <Timer className="w-3.5 h-3.5 text-primary" />
-                                {nft.timeLeft}
+                                {nft.timeLeft || (nft.rentalEndDate ? new Date(nft.rentalEndDate).toLocaleDateString() : 'N/A')}
                             </div>
                         )}
                     </div>
@@ -100,14 +108,14 @@ const NFTCard = ({ nft, status = 'listing', onAction }: NFTCardProps) => {
 
                     {status === 'rented' && (
                         <div className="flex flex-col gap-1">
-                            <span className="text-xs text-muted-foreground">Expires in</span>
-                            <span className="text-sm font-medium text-white">{nft.timeLeft || '2 days'}</span>
+                            <span className="text-xs text-muted-foreground">Expires</span>
+                            <span className="text-sm font-medium text-white">{nft.timeLeft || (nft.rentalEndDate ? new Date(nft.rentalEndDate).toLocaleDateString() : 'Unknown')}</span>
                         </div>
                     )}
 
                     {status === 'owned' && (
                         <div className="flex flex-col gap-1">
-                            <span className="text-xs text-muted-foreground">Last Price</span>
+                            <span className="text-xs text-muted-foreground">Estimate</span>
                             <span className="text-sm font-medium text-white">{nft.price} {nft.currency}</span>
                         </div>
                     )}
@@ -119,14 +127,19 @@ const NFTCard = ({ nft, status = 'listing', onAction }: NFTCardProps) => {
                                 Rent Now
                             </Button>
                         )}
-                        {status === 'owned' && (
+                        {status === 'owned' && !isRentedOut && (
                             <Button variant="outline" size="sm" className="w-full" onClick={() => onAction?.('list', nft.id)}>
                                 List
                             </Button>
                         )}
+                        {isRentedOut && (
+                            <Button variant="secondary" size="sm" className="w-full opacity-70" disabled>
+                                In Escrow
+                            </Button>
+                        )}
                         {status === 'rented' && (
-                            <Button variant="secondary" size="sm" className="w-full" disabled>
-                                In Use
+                            <Button variant="destructive" size="sm" className="w-full" onClick={() => onAction?.('return', nft.id)}>
+                                Return
                             </Button>
                         )}
                     </div>

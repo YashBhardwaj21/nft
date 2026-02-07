@@ -1,7 +1,20 @@
 import { Router } from 'express';
 import * as marketplaceController from '../controllers/marketplace.controller.js';
 
+import { protect } from '../middleware/auth.js';
+
 const router = Router();
+
+// ... existing routes ...
+
+/**
+ * @route   POST /api/marketplace/list/:id
+ * @desc    List an NFT for rent
+ * @access  Private
+ */
+router.post('/list/:id', protect, marketplaceController.listForRent);
+
+
 
 /**
  * @route   GET /api/marketplace

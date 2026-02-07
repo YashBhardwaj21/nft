@@ -1,42 +1,33 @@
 import { Router } from 'express';
 import * as rentalController from '../controllers/rental.controller.js';
 
+import { protect } from '../middleware/auth.js';
+
 const router = Router();
 
-/**
- * @route   GET /api/rentals
- * @desc    Get all rentals
- * @access  Public
- */
-router.get('/', rentalController.getAllRentals);
+// ... existing routes ...
 
 /**
- * @route   GET /api/rentals/:id
- * @desc    Get rental by ID
- * @access  Public
+ * @route   POST /api/rentals/rent
+ * @desc    Rent an NFT (from Listing)
+ * @access  Private
  */
-router.get('/:id', rentalController.getRentalById);
-
-/**
- * @route   POST /api/rentals
- * @desc    Create a new rental
- * @access  Public (will be protected later)
- */
-router.post('/', rentalController.createRental);
+router.post('/rent', protect, rentalController.rentFromListing);
 
 /**
  * @route   POST /api/rentals/:id/rent
- * @desc    Rent an NFT
+ * @desc    Rent an NFT (Legacy/Direct)
  * @access  Public (will be protected later)
  */
 router.post('/:id/rent', rentalController.rentNFT);
 
 /**
- * @route   PUT /api/rentals/:id/return
- * @desc    Return a rented NFT
- * @access  Public (will be protected later)
+ * @route   PUT /api/rentals/return/:nftId
+ * @desc    Return a rented NFT (by NFT ID)
+ * @access  Private
  */
-router.put('/:id/return', rentalController.returnNFT);
+router.put('/return/:nftId', protect, rentalController.returnNFTByNFTId);
+
 
 /**
  * @route   GET /api/rentals/active

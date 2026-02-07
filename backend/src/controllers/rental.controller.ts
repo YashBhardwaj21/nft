@@ -1,7 +1,136 @@
-import { Request, Response } from 'express';
-import { ApiResponse } from '../types/index.js';
-import { RentalModel } from '../models/Rental.js';
-import { NFTModel } from '../models/NFT.js';
+/**
+ * Return a rented NFT by NFT ID
+ */
+export const returnNFTByNFTId = async (req: Request, res: Response) => {
+    try {
+        const { nftId } = req.params; // from /return/:nftId
+        const userId = (req as any).user.id;
+
+        // 1. Find NFT
+        const nft = await NFTModel.findOne({ id: nftId });
+        if (!nft) {
+            return res.status(404).json({ status: 'error', error: 'NFT not found' });
+        }
+
+        // 2. Validate Return Eligibility
+        if (nft.status !== 'rented' && !nft.isEscrowed) {
+            return res.status(400).json({ status: 'error', error: 'NFT is not currently rented.' });
+        }
+
+        // Check if caller is renter OR if rental has expired (allowing owner to reclaim)
+        const isRenter = nft.renterWallet === userId;
+        const isOwner = nft.owner === userId;
+        const isExpired = nft.expiresAt && new Date() > new Date(nft.expiresAt);
+
+        if (!isRenter && !(isOwner && isExpired)) {
+            return res.status(403).json({
+                status: 'error',
+                error: 'Not authorized. Only the renter can return, or owner if expired.'
+            });
+        }
+
+        // 3. Find and Close Rental Record
+        const rental = await RentalModel.findOne({ nftId: nftId, status: 'active' });
+        if (rental) {
+            rental.status = 'completed';
+            rental.endDate = new Date();
+            await rental.save();
+        }
+
+        // 4. Update NFT
+        nft.status = 'available'; // Released back to owner
+        nft.isEscrowed = false;
+        nft.renterWallet = undefined;
+        nft.expiresAt = undefined;
+        nft.rentalEndDate = undefined;
+        await nft.save();
+
+        res.status(200).json({
+            status: 'success',
+            message: 'NFT returned successfully'
+        });
+
+    } catch (error: any) {
+        console.error("Return Error:", error);
+        res.status(500).json({ status: 'error', error: error.message });
+    }
+};
+
+// ... existing functions ...
+
+/**
+ * Rent an NFT from a Listing (Model A)
+ */
+export const rentFromListing = async (req: Request, res: Response) => {
+    try {
+        const { nftId, duration } = req.body;
+        const renterId = (req as any).user.id;
+
+        // 1. Find NFT
+        const nft = await NFTModel.findOne({ id: nftId });
+        if (!nft) {
+            return res.status(404).json({ status: 'error', error: 'NFT not found' });
+        }
+
+        // 2. Verify Availability
+        if (nft.status === 'rented' || nft.isEscrowed) {
+            return res.status(400).json({ status: 'error', error: 'NFT is already rented or in escrow.' });
+        }
+
+        // 3. Find Listing (Optional validation, but good to check price)
+        const listing = await ListingModel.findOne({ nftId: nftId, status: 'active', type: 'rent' });
+        // If no listing, maybe allow if NFT is 'available' and has rentalPrice? 
+        // Strict mode: Must have active listing.
+        if (!listing) {
+            return res.status(404).json({ status: 'error', error: 'No active rental listing found for this NFT.' });
+        }
+
+        // 4. Mock Payment Check
+        // const cost = nft.rentalPrice * duration;
+        // if (userBalance < cost) throw error...
+
+        // 5. Create Rental Record
+        const startDate = new Date();
+        const endDate = new Date(Date.now() + duration * 24 * 60 * 60 * 1000);
+
+        const newRental = await RentalModel.create({
+            id: Date.now().toString(),
+            nftId: nftId,
+            renterId: renterId,
+            ownerId: nft.owner,
+            rentalPrice: Number(listing.price), // Use listing price
+            duration: Number(duration),
+            currency: 'ETH',
+            startDate: startDate,
+            endDate: endDate,
+            status: 'active',
+            transactionHash: `0x${Math.random().toString(16).substr(2, 40)}`, // Mock tx
+            createdAt: new Date()
+        });
+
+        // 6. Update NFT (Enter Escrow)
+        nft.status = 'rented';
+        nft.isEscrowed = true;
+        nft.renterWallet = renterId;
+        nft.expiresAt = endDate;
+        nft.rentalEndDate = endDate;
+        await nft.save();
+
+        // 7. Close Listing
+        listing.status = 'sold'; // Or 'rented' if we add that enum to Listing
+        await listing.save();
+
+        res.status(200).json({
+            status: 'success',
+            data: newRental,
+            message: 'NFT rented successfully. Asset is now in escrow.'
+        });
+
+    } catch (error: any) {
+        console.error("Rent Error:", error);
+        res.status(500).json({ status: 'error', error: error.message });
+    }
+};
 
 /**
  * Get all rentals
