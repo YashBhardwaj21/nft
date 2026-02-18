@@ -22,6 +22,17 @@ const nftSchema = new mongoose.Schema<NFT>({
     views: { type: Number, default: 0 },
     timeLeft: { type: String },
     rentalEndDate: { type: Date },
+
+    // Chain Data (Minting)
+    fileHash: { type: String }, // SHA-256 of raw image bytes
+    tokenId: { type: String },
+    tokenURI: { type: String },
+    imageCID: { type: String },
+    metadataCID: { type: String },
+    mintTxHash: { type: String },
+    blockNumber: { type: Number },
+    mintStatus: { type: String, enum: ['draft', 'pending', 'confirmed', 'failed'], default: 'draft' },
+
     createdAt: { type: Date, default: Date.now },
     updatedAt: { type: Date, default: Date.now }
 });

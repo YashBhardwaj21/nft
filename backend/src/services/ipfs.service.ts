@@ -1,17 +1,19 @@
 import axios from 'axios';
 import FormData from 'form-data';
-import fs from 'fs';
 
-export const uploadToIPFS = async (file: Express.Multer.File): Promise<string> => {
+/**
+ * Upload a file buffer to IPFS via Pinata
+ */
+export const uploadFileBuffer = async (buffer: Buffer, filename: string, contentType: string): Promise<string> => {
     try {
         const formData = new FormData();
-        formData.append('file', file.buffer, {
-            filename: file.originalname,
-            contentType: file.mimetype
+        formData.append('file', buffer, {
+            filename: filename,
+            contentType: contentType
         });
 
         const pinataMetadata = JSON.stringify({
-            name: file.originalname,
+            name: filename,
         });
         formData.append('pinataMetadata', pinataMetadata);
 
@@ -29,7 +31,36 @@ export const uploadToIPFS = async (file: Express.Multer.File): Promise<string> =
 
         return `https://gateway.pinata.cloud/ipfs/${res.data.IpfsHash}`;
     } catch (error) {
-        console.error('Error uploading to IPFS:', error);
-        throw new Error('Failed to upload image to IPFS');
+        console.error('Error uploading file to IPFS:', error);
+        throw new Error('Failed to upload file to IPFS');
     }
+};
+
+/**
+ * Upload JSON metadata to IPFS via Pinata
+ */
+export const uploadJSON = async (json: any, name: string): Promise<string> => {
+    try {
+        const res = await axios.post("https://api.pinata.cloud/pinning/pinJSONToIPFS", {
+            pinataContent: json,
+            pinataMetadata: {
+                name: name
+            }
+        }, {
+            headers: {
+                'Authorization': `Bearer ${process.env.PINATA_JWT}`,
+                'Content-Type': 'application/json'
+            },
+        });
+
+        return `https://gateway.pinata.cloud/ipfs/${res.data.IpfsHash}`;
+    } catch (error) {
+        console.error('Error uploading JSON to IPFS:', error);
+        throw new Error('Failed to upload metadata to IPFS');
+    }
+};
+
+// Legacy method wrapper
+export const uploadToIPFS = async (file: Express.Multer.File): Promise<string> => {
+    return uploadFileBuffer(file.buffer, file.originalname, file.mimetype);
 };

@@ -25,7 +25,9 @@ router.get('/:id', nftController.getNFTById);
  */
 import { upload } from '../middleware/upload.js';
 
-router.post('/', protect, upload.single('image'), nftController.createNFT);
+router.post('/prepare', protect, upload.single('image'), nftController.prepareMint);
+router.post('/confirm', protect, nftController.confirmMint);
+// router.post('/', protect, upload.single('image'), nftController.createNFT); // Legacy
 
 /**
  * @route   PUT /api/nfts/:id

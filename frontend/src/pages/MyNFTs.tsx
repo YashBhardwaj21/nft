@@ -12,6 +12,7 @@ import api from '../api/client';
 import { NFT, Listing, RentalHistoryItem, EarningHistoryItem, UserStats } from '../types';
 import { toast } from 'sonner';
 import RentListingModal from '@/components/rentals/RentListingModal';
+import MintModal from '@/components/mint/MintModal';
 import { Badge } from '@/components/ui/badge';
 import { WalletConnectButton } from '@/components/WalletConnectButton';
 
@@ -31,6 +32,7 @@ const MyNFTs = () => {
 
   // Rental Modal State
   const [isRentModalOpen, setIsRentModalOpen] = useState(false);
+  const [isMintModalOpen, setIsMintModalOpen] = useState(false);
   const [selectedNftForRent, setSelectedNftForRent] = useState<NFT | null>(null);
 
   const [stats, setStats] = useState({
@@ -361,7 +363,7 @@ const MyNFTs = () => {
                         <NFTCard key={nft.id} nft={nft} status="owned" onAction={handleAction} />
                       ))}
                       {/* Mint Placeholder */}
-                      <button className="border border-dashed border-white/10 rounded-[1.5rem] bg-white/[0.02] flex flex-col items-center justify-center cursor-pointer hover:bg-white/[0.05] hover:border-blue-500/30 transition-all duration-300 aspect-[4/5] sm:aspect-auto sm:min-h-[400px] group w-full text-left" onClick={() => toast.info("Minting coming soon!")}>
+                      <button className="border border-dashed border-white/10 rounded-[1.5rem] bg-white/[0.02] flex flex-col items-center justify-center cursor-pointer hover:bg-white/[0.05] hover:border-blue-500/30 transition-all duration-300 aspect-[4/5] sm:aspect-auto sm:min-h-[400px] group w-full text-left" onClick={() => setIsMintModalOpen(true)}>
                         <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mb-4 group-hover:scale-110 group-hover:bg-blue-500 group-hover:text-white transition-all duration-300 shadow-xl group-hover:shadow-blue-500/20">
                           <Plus className="w-8 h-8 text-gray-400 group-hover:text-white" />
                         </div>
@@ -533,7 +535,7 @@ const MyNFTs = () => {
                 <Sparkles className="w-4 h-4 text-primary" /> Quick Actions
               </h3>
               <div className="space-y-3 relative z-10">
-                <Button className="w-full justify-start h-12 text-sm font-bold rounded-xl bg-white text-black hover:bg-gray-200 transition-all shadow-lg shadow-white/5 active:text-black focus:text-black" variant="default" onClick={() => toast.info("Minting coming soon!")}>
+                <Button className="w-full justify-start h-12 text-sm font-bold rounded-xl bg-white text-black hover:bg-gray-200 transition-all shadow-lg shadow-white/5 active:text-black focus:text-black" variant="default" onClick={() => setIsMintModalOpen(true)}>
                   <Plus className="w-4 h-4 mr-3" /> Mint New NFT
                 </Button>
                 <Button className="w-full justify-start h-12 text-sm font-medium rounded-xl border-white/10 bg-white/5 hover:bg-white/10 hover:text-white text-gray-300 transition-all active:text-white focus:text-white" variant="outline" onClick={() => setActiveTab('listings')}>
@@ -589,6 +591,18 @@ const MyNFTs = () => {
             fetchUserData();
             setIsRentModalOpen(false);
             toast.success("Listing created successfully");
+          }}
+        />
+
+        <MintModal
+          isOpen={isMintModalOpen}
+          onClose={() => setIsMintModalOpen(false)}
+          onSuccess={() => {
+            fetchUserData();
+            // keep open on success if desired, but MintModal handles its own success state view
+            // Actually MintModal calls onSuccess when clicking 'Close' or after finishing if designed so.
+            // But looking at MintModal code, it calls onSuccess() inside the confirmation block but doesn't close automatically.
+            // Let's rely on fetchUserData to refresh the list.
           }}
         />
       </div>

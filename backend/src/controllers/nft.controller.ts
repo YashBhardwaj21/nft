@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { ApiResponse } from '../types/index.js';
-import { NFTModel } from '../models/NFT.js';
+// import { NFTModel } from '../models/NFT.js'; // Removed duplicate
 
 /**
  * Get all NFTs
@@ -81,41 +81,119 @@ export const getNFTById = async (req: Request, res: Response) => {
 /**
  * Create new NFT
  */
-import { uploadToIPFS } from '../services/ipfs.service.js';
+import { uploadFileBuffer, uploadJSON } from '../services/ipfs.service.js';
+import { sha256Buffer } from '../crypto/sha256.js';
+import { NFTModel } from '../models/NFT.js';
 
 /**
- * Create new NFT
+ * Prepare NFT for minting
+ * 1. Calculate SHA-256 of raw image (for authenticity)
+ * 2. Upload image to IPFS
+ * 3. Create & upload metadata to IPFS
+ * 4. Create Draft NFT record
+ * 5. Return tokenURI + draftId for frontend to mint
  */
-export const createNFT = async (req: Request, res: Response) => {
+export const prepareMint = async (req: Request, res: Response) => {
     try {
-        let imageUrl = req.body.image;
-
-        if (req.file) {
-            imageUrl = await uploadToIPFS(req.file);
+        if (!req.file) {
+            return res.status(400).json({ error: 'Image file is required' });
         }
 
-        const newNFT = await NFTModel.create({
-            id: Date.now().toString(),
-            ...req.body,
-            image: imageUrl,
-            createdAt: new Date(),
-            updatedAt: new Date()
-        });
+        const { name, description, attributes } = req.body;
+        const walletAddress = (req as any).user.walletAddress; // From SIWE auth
 
-        const response: ApiResponse<any> = {
-            status: 'success',
-            data: newNFT,
-            message: 'NFT created successfully'
+        // 1. Calculate Authenticity Hash (SHA-256 of raw bytes)
+        const fileHash = sha256Buffer(req.file.buffer);
+
+        // 2. Upload Image to IPFS
+        const imageUrl = await uploadFileBuffer(req.file.buffer, req.file.originalname, req.file.mimetype);
+
+        // Extract CID from URL (simple split for demo)
+        // https://gateway.pinata.cloud/ipfs/Qm...
+        const imageCID = imageUrl.split('/').pop() || '';
+
+        // 3. Create Metadata
+        const metadata = {
+            name,
+            description,
+            image: imageUrl,
+            attributes: attributes ? JSON.parse(attributes) : [],
+            external_url: "https://daomarketplace.demo",
+            file_hash: fileHash, // On-chain proof of matching file
+            creator: walletAddress
         };
 
-        res.status(201).json(response);
-    } catch (error: any) {
-        res.status(500).json({
-            status: 'error',
-            error: error.message
+        const metadataUrl = await uploadJSON(metadata, `${name.replace(/\s+/g, '-')}-metadata`);
+        const metadataCID = metadataUrl.split('/').pop() || '';
+
+        // 4. Create Draft Record
+        const draftNFT = await NFTModel.create({
+            id: Date.now().toString(), // Temporary ID until minted
+            name,
+            description,
+            image: imageUrl,
+            owner: (req as any).user.id, // User ID
+            creator: walletAddress,
+            collection: 'DAO Collection',
+            price: 0, // Not listed yet
+            status: 'available',
+
+            // Chain Data
+            fileHash,
+            imageCID,
+            metadataCID,
+            tokenURI: metadataUrl,
+            mintStatus: 'draft'
         });
+
+        // 5. Return Prep Data
+        res.status(201).json({
+            status: 'success',
+            data: {
+                draftId: draftNFT.id,
+                tokenURI: metadataUrl,
+                contractAddress: process.env.CONTRACT_ADDRESS,
+                fileHash
+            }
+        });
+
+    } catch (error: any) {
+        console.error("Prepare Mint Error:", error);
+        res.status(500).json({ status: 'error', error: error.message });
     }
 };
+
+/**
+ * Confirm Mint
+ * Frontend calls this after wallet successfully submits transaction
+ */
+export const confirmMint = async (req: Request, res: Response) => {
+    try {
+        const { draftId, txHash } = req.body;
+
+        if (!draftId || !txHash) {
+            return res.status(400).json({ error: 'Missing draftId or txHash' });
+        }
+
+        const nft = await NFTModel.findOne({ id: draftId });
+        if (!nft) {
+            return res.status(404).json({ error: 'Draft NFT not found' });
+        }
+
+        nft.mintTxHash = txHash;
+        nft.mintStatus = 'pending';
+        await nft.save();
+
+        res.status(200).json({ status: 'success', message: 'Mint marked as pending' });
+
+    } catch (error: any) {
+        console.error("Confirm Mint Error:", error);
+        res.status(500).json({ status: 'error', error: error.message });
+    }
+};
+
+// Legacy createNFT wrapper if needed, or just remove
+export const createNFT = prepareMint;
 
 /**
  * Update NFT

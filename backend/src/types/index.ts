@@ -21,6 +21,16 @@ export interface NFT {
     metadata?: Record<string, any>;
     timeLeft?: string;
     rentalEndDate?: Date;
+
+    // Chain Data (Minting)
+    fileHash?: string;
+    tokenURI?: string;
+    imageCID?: string;
+    metadataCID?: string;
+    mintTxHash?: string;
+    blockNumber?: number;
+    mintStatus?: 'draft' | 'pending' | 'confirmed' | 'failed';
+
     createdAt?: Date;
     updatedAt?: Date;
 }

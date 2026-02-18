@@ -6,6 +6,7 @@ import marketplaceRoutes from './routes/marketplace.routes.js';
 import rentalRoutes from './routes/rental.routes.js';
 import authRoutes from './routes/auth.routes.js';
 import userRoutes from './routes/user.routes.js';
+import demoRoutes from './routes/demo.routes.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
 // Load environment variables
@@ -14,6 +15,8 @@ dotenv.config();
 // Connect to Database
 import connectDB from './config/db.js';
 import { CryptoService } from './security/cryptoService.js';
+import { chainListener } from './services/chainListener.js';
+import { quickCheck } from './crypto/quickCheck.js';
 
 // CryptoService.selfTest() is called inside startServer() below.
 
@@ -42,6 +45,7 @@ app.use('/api/nfts', nftRoutes);
 app.use('/api/marketplace', marketplaceRoutes);
 app.use('/api/rentals', rentalRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/demo', demoRoutes);
 
 // 404 handler
 app.use('*', (req: Request, res: Response) => {
@@ -57,10 +61,21 @@ app.use(errorHandler);
 // Start server
 const startServer = async () => {
     try {
-        await CryptoService.selfTest();
+        // Start Chain Listener
+        chainListener.start();
+
+        // Run Crypto Self-Test
+        try {
+            await CryptoService.selfTest();
+            console.log(`Crypto Self-Test: PASSED ✅`);
+            quickCheck(); // Non-blocking
+        } catch (error) {
+            console.error(`Crypto Self-Test: FAILED ❌`, error);
+            process.exit(1);
+        }
 
         app.listen(PORT, () => {
-            console.log(`🚀 Server is running on port ${PORT}`);
+            console.log(`Server running on port ${PORT}`);
             console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
             console.log(`🔗 Health check: http://localhost:${PORT}/health`);
         });
