@@ -29,7 +29,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     useEffect(() => {
         const verifySession = async () => {
-            if (!token) {
+            const currentToken = localStorage.getItem('token');
+            if (!currentToken) {
                 setLoading(false);
                 return;
             }
@@ -38,7 +39,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
                 const response = await fetch(`${apiBaseUrl}/auth/verify-token`, {
                     headers: {
-                        'Authorization': `Bearer ${token}`
+                        'Authorization': `Bearer ${currentToken}`
                     }
                 });
 
@@ -46,7 +47,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                     const data = await response.json();
                     if (data.valid && data.user) {
                         setUser(data.user);
-                        // Optional: Refresh token in storage if needed, but for now just sync state
                     } else {
                         logout();
                     }
@@ -62,7 +62,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         };
 
         verifySession();
-    }, []); // Run only on mount (or when token changes? logic suggests on mount check is sufficient if we trust internal state updates)
+    }, []);
 
     const login = (newToken: string, userData: User) => {
         console.log("AuthContext: login called, setting token:", newToken.substring(0, 10) + "...");
@@ -87,7 +87,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             setLoading(true);
             const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
 
-            // 1. Get Nonce
+            // 1. Get Nonce from backend
             const nonceResponse = await fetch(`${apiBaseUrl}/auth/nonce/${address}`);
             const nonceData = await nonceResponse.json();
 
@@ -95,11 +95,27 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                 throw new Error(nonceData.error || 'Failed to get nonce');
             }
 
-            // 2. Sign Message
-            const message = `Sign in to DAO Marketplace using account ${address}. Nonce: ${nonceData.nonce}`;
+            // 2. Construct EIP-4361 (SIWE) message
+            const domain = window.location.host;
+            const uri = window.location.origin;
+            const issuedAt = new Date().toISOString();
+            const message = [
+                `${domain} wants you to sign in with your Ethereum account:`,
+                address,
+                '',
+                'Sign in to DAO Marketplace',
+                '',
+                `URI: ${uri}`,
+                'Version: 1',
+                'Chain ID: 1',
+                `Nonce: ${nonceData.nonce}`,
+                `Issued At: ${issuedAt}`,
+            ].join('\n');
+
+            // 3. Request wallet signature
             const signature = await signMessageAsync({ message });
 
-            // 3. Verify Signature
+            // 4. Verify signature on backend
             const verifyResponse = await fetch(`${apiBaseUrl}/auth/verify`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -118,7 +134,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         } catch (error: any) {
             console.error("Wallet login failed", error);
             setLoading(false);
-            throw error; // Re-throw so component can show specific error
+            throw error;
         }
     };
 

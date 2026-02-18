@@ -33,17 +33,15 @@ export const WalletConnectButton = () => {
             const success = await loginWithWallet(address);
             if (success) {
                 toast.success("Successfully signed in!");
-                setShouldNavigate(true);
+                // Force navigation immediately on success
+                navigate("/my-nfts");
             }
         } catch (error: any) {
             console.error("Sign in failed:", error);
             toast.error(error.message || "Sign in failed. Please try again.");
-            setIsSigningIn(false); // Only stop loading on error, let effect handle success
+        } finally {
+            setIsSigningIn(false);
         }
-        // Note: We don't verify success=false here because we throw now.
-        // And we don't setSigningIn(false) on success immediately to prevent UI flicker? 
-        // Actually, if we setShouldNavigate(true), we can setIsSigningIn(false) after redirect? 
-        // Let's keep it simple.
     }
 
     return (

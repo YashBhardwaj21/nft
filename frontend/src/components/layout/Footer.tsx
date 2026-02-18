@@ -108,17 +108,17 @@ const Footer = () => {
                         © {new Date().getFullYear()} RentableNFT DAO. All rights reserved.
                     </p>
 
-                    <div className="flex gap-6 text-xs text-muted-foreground">
-                        <a href="#" className="hover:text-white transition-colors">
-                            Twitter
-                        </a>
-                        <a href="#" className="hover:text-white transition-colors">
-                            Discord
-                        </a>
-                        <a href="#" className="hover:text-white transition-colors">
-                            GitHub
+                    <div className="flex gap-9 text-xs text-muted-foreground -ml-4">
+                        <a
+                            href="https://github.com/YashBhardwaj21/nft"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="hover:text-white transition-colors"
+                        >
+                            Github
                         </a>
                     </div>
+
                 </div>
             </div>
         </footer>

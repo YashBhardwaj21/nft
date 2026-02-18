@@ -13,6 +13,10 @@ dotenv.config();
 
 // Connect to Database
 import connectDB from './config/db.js';
+import { CryptoService } from './security/cryptoService.js';
+
+// CryptoService.selfTest() is called inside startServer() below.
+
 connectDB();
 
 const app: Application = express();
@@ -51,10 +55,21 @@ app.use('*', (req: Request, res: Response) => {
 app.use(errorHandler);
 
 // Start server
-app.listen(PORT, () => {
-    console.log(`🚀 Server is running on port ${PORT}`);
-    console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`🔗 Health check: http://localhost:${PORT}/health`);
-});
+const startServer = async () => {
+    try {
+        await CryptoService.selfTest();
+
+        app.listen(PORT, () => {
+            console.log(`🚀 Server is running on port ${PORT}`);
+            console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
+            console.log(`🔗 Health check: http://localhost:${PORT}/health`);
+        });
+    } catch (error) {
+        console.error('Failed to start server:', error);
+        process.exit(1);
+    }
+};
+
+startServer();
 
 export default app;

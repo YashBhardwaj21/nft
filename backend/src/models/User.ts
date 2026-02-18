@@ -7,7 +7,8 @@ const userSchema = new mongoose.Schema<User>({
     email: { type: String, required: true, unique: true },
     password: { type: String }, // Optional for now, required later for auth
     walletAddress: { type: String, unique: true },
-    nonce: { type: String }, // For SIWE
+    nonce: { type: String }, // Stores SHA-256 hash of the nonce
+    nonceExpiresAt: { type: Date }, // Expiration time for the nonce
     profileImage: { type: String },
     bio: { type: String },
     createdAt: { type: Date, default: Date.now }

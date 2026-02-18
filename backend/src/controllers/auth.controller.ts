@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { UserModel } from '../models/User.js';
-import { ethers } from 'ethers';
+import { CryptoService } from '../security/cryptoService.js';
 
 const generateToken = (id: string) => {
     if (!process.env.JWT_SECRET) {
@@ -67,52 +67,10 @@ export const register = async (req: Request, res: Response) => {
  * @deprecated Legacy wallet login. Use SIWE (getNonce + verify).
  */
 export const walletLogin = async (req: Request, res: Response) => {
-    try {
-        const { walletAddress } = req.body;
-
-        if (!walletAddress) {
-            return res.status(400).json({ status: 'error', error: 'Wallet address is required' });
-        }
-
-        // Check if user exists with this wallet
-        let user = await UserModel.findOne({ walletAddress });
-
-        if (!user) {
-            // Create new user for this wallet
-            // Note: We need to handle required fields. 
-            // For MVP, we'll generate placeholders. ideally, we'd ask user to complete profile.
-            const uniqueSuffix = Date.now().toString().slice(-4);
-            const shortAddress = walletAddress.substring(0, 6);
-
-            // Hash a dummy password
-            const salt = await bcrypt.genSalt(10);
-            const hashedPassword = await bcrypt.hash(`wallet_${walletAddress}`, salt);
-
-            user = await UserModel.create({
-                id: Date.now().toString(),
-                username: `WalletUser_${shortAddress}_${uniqueSuffix}`,
-                email: `${walletAddress.toLowerCase()}@wallet.placeholder`, // unique placeholder
-                password: hashedPassword,
-                walletAddress: walletAddress,
-                createdAt: new Date()
-            });
-        }
-
-        res.status(200).json({
-            status: 'success',
-            data: {
-                id: user.id,
-                username: user.username,
-                email: user.email,
-                walletAddress: user.walletAddress,
-                token: generateToken(user.id)
-            }
-        });
-
-    } catch (error: any) {
-        console.error("Wallet login error:", error);
-        res.status(500).json({ status: 'error', error: error.message });
-    }
+    return res.status(410).json({
+        status: 'error',
+        error: 'Legacy wallet login is deprecated. Please use SIWE flow.'
+    });
 };
 
 /**
@@ -159,9 +117,15 @@ export const getNonce = async (req: Request, res: Response) => {
         }
 
         const normalizedAddress = walletAddress.toLowerCase();
-        console.log(`[SIWE] getNonce for ${normalizedAddress}`);
 
-        const nonce = Math.floor(Math.random() * 1000000).toString();
+        // 1. Generate Nonce
+        const nonce = await CryptoService.generateNonce();
+
+        // 2. Compute Hash for Storage
+        const nonceHash = CryptoService.getNonceHash(normalizedAddress, nonce);
+
+        // 3. Set Expiration (5 minutes)
+        const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
         let user = await UserModel.findOne({ walletAddress: normalizedAddress });
 
@@ -170,16 +134,19 @@ export const getNonce = async (req: Request, res: Response) => {
             user = await UserModel.create({
                 id: normalizedAddress, // PRIMARY KEY is wallet address
                 walletAddress: normalizedAddress,
-                nonce,
+                nonce: nonceHash, // STORE HASH, NOT RAW NONCE
+                nonceExpiresAt: expiresAt,
                 username: `User ${normalizedAddress.slice(0, 6)}`,
                 email: `${normalizedAddress}@placeholder.com`,
                 profileImage: `https://api.dicebear.com/7.x/identicon/svg?seed=${normalizedAddress}` // Default Avatar
             });
         } else {
-            user.nonce = nonce;
+            user.nonce = nonceHash;
+            user.nonceExpiresAt = expiresAt;
             await user.save();
         }
 
+        // Return RAW nonce to user (so they can sign it)
         res.status(200).json({ nonce });
     } catch (error: any) {
         console.error("Get Nonce Error:", error);
@@ -199,45 +166,34 @@ export const verify = async (req: Request, res: Response) => {
         }
 
         const normalizedAddress = walletAddress.toLowerCase();
-        console.log(`[SIWE] verify for ${normalizedAddress}`);
 
-        // 1. Verify User Exists
+        // 1. Fetch User & Stored Nonce Hash
         const user = await UserModel.findOne({ walletAddress: normalizedAddress });
-        if (!user) {
-            console.error(`[SIWE] User not found for ${normalizedAddress}`);
-            return res.status(404).json({ error: 'User not found. Please request nonce first.' });
-        }
-        if (!user.nonce) {
-            console.error(`[SIWE] Nonce missing for user ${user.id}`);
-            return res.status(400).json({ error: 'Nonce expired or missing. Please sign in again.' });
+
+        if (!user || !user.nonce) {
+            return res.status(404).json({ error: 'Nonce not found. Please request a new nonce.' });
         }
 
-        // 2. Cryptographic Verification (Real ECDSA)
-        try {
-            const recoveredAddress = ethers.verifyMessage(message, signature);
-
-            if (recoveredAddress.toLowerCase() !== normalizedAddress) {
-                console.error(`[SIWE] Signature verification failed. Recovered: ${recoveredAddress}, Expected: ${normalizedAddress}`);
-                return res.status(401).json({ error: 'Invalid signature. Wallet mismatch.' });
-            }
-        } catch (err) {
-            console.error("[SIWE] Signature malformed:", err);
-            return res.status(400).json({ error: 'Malformed signature' });
+        // 2. Check Expiration
+        if (user.nonceExpiresAt && new Date() > user.nonceExpiresAt) {
+            return res.status(400).json({ error: 'Nonce expired. Please request a new nonce.' });
         }
 
-        // 3. Nonce Verification
-        if (!message.includes(`Nonce: ${user.nonce}`)) {
-            // Flexible check: The message MUST contain the nonce.
-            // Ideally we parse the full SIWE message, but checking existence is the bare minimum for MVP.
-            // If frontend sends "Nonce: 123456", this check passes.
-            // If message is just "Sign in...", we need to ensure checks are strict.
-            // Let's assume standard SIWE message format.
-            console.error(`[SIWE] Nonce mismatch. Message: ${message}, Expected: ${user.nonce}`);
-            return res.status(401).json({ error: 'Invalid nonce. Please sign in again.' });
+        // 3. Authenticate via CryptoService (The Firewall)
+        const authResult = await CryptoService.authenticateSIWE(
+            message,
+            signature,
+            normalizedAddress,
+            user.nonce // Pass the stored HASH
+        );
+
+        if (!authResult.success) {
+            return res.status(401).json({ error: authResult.error || 'Authentication failed' });
         }
 
-        // 4. Clear Nonce (Prevent Replay)
+        // 4. Consume Nonce (Prevent Replay)
         user.nonce = undefined;
+        user.nonceExpiresAt = undefined;
         await user.save();
 
         // 5. Issue Token
@@ -266,18 +222,7 @@ export const verify = async (req: Request, res: Response) => {
  */
 export const verifyToken = async (req: Request, res: Response) => {
     try {
-        // The middleware already verified the token and attached user to req.user (if we use authMiddleware)
-        // However, if this is a standalone check or if we need to return fresh user data:
-
-        // Assuming authMiddleware is used on this route, req.user.id is available.
-        // But since we haven't seen the middleware implementation yet, let's decode safely or rely on middleware.
-        // For now, let's assume this route is protected by `protect` middleware which adds `req.user`.
-
-        // If usage is: router.get('/verify-token', protect, verifyToken);
-        // Then req.user is populated.
-
-        // If req.user is populated by middleware:
-        const userReq = req as any; // Type assertion since we don't have the extended definitions handy
+        const userReq = req as any;
         if (!userReq.user) {
             return res.status(401).json({ status: 'error', error: 'Not authenticated' });
         }

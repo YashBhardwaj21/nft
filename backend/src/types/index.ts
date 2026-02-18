@@ -61,7 +61,8 @@ export interface User {
     email: string; // Made required to match schema
     password?: string; // Added for auth
     walletAddress?: string;
-    nonce?: string; // Added for SIWE
+    nonce?: string; // Added for SIWE (Stores SHA-256 hash)
+    nonceExpiresAt?: Date; // Added for SIWE expiration
     profileImage?: string;
     bio?: string;
     createdAt?: Date;
@@ -72,6 +73,8 @@ export interface UserStats {
     totalValue: string;
     activeListings: number;
     totalRentals: number;
+    totalEarnings?: string; // Added to match controller
+    activeRentedOut?: number; // Added to match controller
     currency: string;
 }
 
