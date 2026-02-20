@@ -49,13 +49,14 @@ function hmacSha256(key: string, data: string): string {
     let keyBytes = Buffer.from(key, 'utf8');
 
     // If key > block size, hash it first
+    let finalKeyBytes: any = keyBytes;
     if (keyBytes.length > blockSize) {
-        keyBytes = sha256Buffer(keyBytes);
+        finalKeyBytes = sha256Buffer(keyBytes);
     }
 
     // Pad key to block size
     const paddedKey = Buffer.alloc(blockSize, 0);
-    keyBytes.copy(paddedKey);
+    finalKeyBytes.copy(paddedKey);
 
     // XOR with ipad and opad
     const ipad = Buffer.alloc(blockSize);

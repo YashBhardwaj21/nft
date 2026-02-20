@@ -54,6 +54,7 @@ export interface Listing {
     id: string;
     nftId: string;
     tokenAddress?: string; // Address of the NFT contract
+    onChainListingId?: number; // Added to map to DAOMarketplaceMarket listingId
     sellerId: string;
     price: string;
     rentalPrice?: string;

@@ -89,8 +89,8 @@ export const rentFromListing = async (req: Request, res: Response) => {
         const { listingId, nftId, days } = req.body;
         const renterId = (req as any).user.id;
 
-        if (!listingId || !days) {
-            return res.status(400).json({ status: 'error', error: 'Missing listingId or days' });
+        if ((!listingId && !nftId) || !days) {
+            return res.status(400).json({ status: 'error', error: 'Missing listingId (or nftId) or days' });
         }
 
         // 1. Find Listing
@@ -111,17 +111,20 @@ export const rentFromListing = async (req: Request, res: Response) => {
             return res.status(404).json({ status: 'error', error: 'Listing not found' });
         }
 
+        if (listing.onChainListingId === undefined || listing.onChainListingId === null) {
+            return res.status(400).json({ status: 'error', error: 'This listing is missing an on-chain Listing ID. It may be corrupt or legacy.' });
+        }
+
         // 3. Generate Transaction Data
         if (!MARKETPLACE_ADDRESS || MARKETPLACE_ABI.length === 0) {
             return res.status(503).json({ status: 'error', error: 'Marketplace contract not configured' });
         }
 
-
         const pricePerDay = BigInt(listing.price); // Assuming price is stored in wei as string
         const totalPrice = pricePerDay * BigInt(days);
 
         const iface = new ethers.Interface(MARKETPLACE_ABI);
-        const data = iface.encodeFunctionData("rent", [targetListingId, days]);
+        const data = iface.encodeFunctionData("rent", [listing.onChainListingId, days]);
 
         res.status(200).json({
             status: 'success',

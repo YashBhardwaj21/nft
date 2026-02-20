@@ -303,7 +303,7 @@ export const deleteListing = async (req: Request, res: Response) => {
 export const listForRent = async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
-        const { price, duration } = req.body;
+        const { price, duration, onChainListingId } = req.body;
         // req.user is added by protect middleware
         const userId = (req as any).user.id;
 
@@ -312,6 +312,9 @@ export const listForRent = async (req: Request, res: Response) => {
         }
         if (duration === undefined || duration === null || isNaN(Number(duration))) {
             return res.status(400).json({ status: 'error', error: 'Valid duration is required' });
+        }
+        if (onChainListingId === undefined || onChainListingId === null) {
+            return res.status(400).json({ status: 'error', error: 'onChainListingId is required to verify the smart contract listing.' });
         }
 
         // 1. Find NFT
@@ -337,6 +340,7 @@ export const listForRent = async (req: Request, res: Response) => {
         const newListing = await ListingModel.create({
             id: Date.now().toString(),
             nftId: id,
+            onChainListingId: Number(onChainListingId),
             sellerId: userId,
             price: price.toString(),
             rentalPrice: price.toString(),

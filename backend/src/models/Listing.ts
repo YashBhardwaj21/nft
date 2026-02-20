@@ -5,6 +5,7 @@ const listingSchema = new mongoose.Schema<Listing>({
     id: { type: String, required: true, unique: true },
     nftId: { type: String, required: true, ref: 'NFT' },
     tokenAddress: { type: String }, // Address of the NFT contract
+    onChainListingId: { type: Number }, // Maps to DAOMarketplaceMarket's uint256 listingId
     sellerId: { type: String, required: true, ref: 'User' },
     price: { type: String, required: true },
     rentalPrice: { type: String },
