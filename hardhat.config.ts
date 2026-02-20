@@ -11,7 +11,6 @@ const config: HardhatUserConfig = {
     solidity: "0.8.20",
     networks: {
         sepolia: {
-            type: "http",
             url: SEPOLIA_RPC,
             accounts: DEPLOYER_KEY ? [DEPLOYER_KEY] : [],
         },

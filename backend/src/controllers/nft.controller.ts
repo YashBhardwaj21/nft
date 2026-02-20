@@ -18,7 +18,7 @@ export const getAllNFTs = async (req: Request, res: Response) => {
 
         // Filter by collection
         if (collection) {
-            filter.collection = { $regex: collection, $options: 'i' };
+            filter.collectionName = { $regex: collection, $options: 'i' };
         }
 
         // Filter by price range
@@ -135,7 +135,7 @@ export const prepareMint = async (req: Request, res: Response) => {
             image: imageUrl,
             owner: (req as any).user.id, // User ID
             creator: walletAddress,
-            collection: 'DAO Collection',
+            collectionName: 'DAO Collection',
             price: 0, // Not listed yet
             status: 'available',
 

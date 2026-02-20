@@ -1,8 +1,12 @@
-// MOCK WALLET HOOK - REPLACED TO FIX WHITE SCREEN
+import { useAccount } from 'wagmi';
+
 export const useWallet = () => {
+    const { address, isConnected } = useAccount();
+
     return {
-        address: null,
-        isConnected: false,
+        address,
+        isConnected,
+        // For compatibility with legacy code calling getSigner, though we should prefer wagmi hooks directly
         getSigner: async () => null
     };
 };

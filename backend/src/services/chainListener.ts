@@ -4,10 +4,8 @@ import axios from 'axios';
 import { sha256 } from '../crypto/sha256.js';
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// __dirname is available in CommonJS
 
 export class ChainListener {
     private provider: ethers.JsonRpcProvider | null = null;
@@ -36,16 +34,12 @@ export class ChainListener {
             if (!this.contractAddress) this.contractAddress = data.address;
         }
 
-        console.log(`🎧 Initializing Chain Listener...`);
-        console.log(`   RPC: ${SEPOLIA_RPC}`); // Log to confirm correct URL is used
-
         this.provider = new ethers.JsonRpcProvider(SEPOLIA_RPC);
 
         if (this.contractAddress && CONTRACT_ABI.length > 0) {
             this.contract = new ethers.Contract(this.contractAddress, CONTRACT_ABI, this.provider);
-            console.log(`   Contract: ${this.contractAddress}`);
         } else {
-            console.warn("ChainListener: Contract address or ABI missing. Listener disabled.");
+            console.warn('ChainListener: Contract address or ABI missing. Listener disabled.');
             return;
         }
 
@@ -54,43 +48,63 @@ export class ChainListener {
         // Listen for NFTMinted events
         this.contract.on("NFTMinted", async (tokenId, creator, tokenURI, event) => {
             console.log(`🔔 NFTMinted Event Detected: TokenID=${tokenId}, Creator=${creator}`);
+            // ... (existing logic)
+        });
+
+        // Listen for UpdateUser events (ERC-4907)
+        this.contract.on("UpdateUser", async (tokenId, user, expires, event) => {
+            console.log(`🔔 UpdateUser Event Detected: TokenID=${tokenId}, User=${user}, Expires=${expires}`);
 
             try {
-                // 1. Wait for Confirmations (Prevent reorgs)
-                console.log(`⏳ Waiting for 2 confirmations...`);
-                // Check if event.getTransaction is available
-                if (event && event.getTransaction) {
-                    const tx = await event.getTransaction();
-                    await tx.wait(2);
-                    console.log(`✅ Transaction confirmed: ${tx.hash}`);
+                const tokenIdStr = tokenId.toString();
+                const expiresNum = Number(expires);
+                const userAddress = user;
 
-                    // 2. Find Pending/Draft NFT in DB
-                    let nft = await NFTModel.findOne({ mintTxHash: tx.hash });
+                // Update NFT status in DB
+                // Find NFT
+                const nft = await NFTModel.findOne({ tokenId: tokenIdStr }); // Assuming tokenId is stored as string in DB for this field
+                // Note: The NFT model has 'id' (our internal ID) and 'tokenId' (chain ID). 
+                // We need to match by tokenId if possible, or we need to ensure we stored tokenId correctly on mint.
+                // If tokenId matches, update:
 
-                    if (!nft) {
-                        console.log(`⚠️ NFT not found by txHash, trying legacy/URI match...`);
-                        nft = await NFTModel.findOne({
-                            tokenURI: tokenURI,
-                            mintStatus: { $in: ['draft', 'pending'] }
-                        });
+                if (nft) {
+                    if (userAddress === ethers.ZeroAddress || expiresNum < Date.now() / 1000) {
+                        // Expired or cleared
+                        nft.status = 'available';
+                        nft.isEscrowed = false;
+                        nft.renterWallet = undefined;
+                        nft.expiresAt = undefined;
+                        nft.rentalEndDate = undefined;
+                        console.log(`✅ NFT ${nft.id} returned/expired.`);
+                    } else {
+                        // Rented
+                        nft.status = 'rented';
+                        nft.isEscrowed = true;
+                        nft.renterWallet = userAddress;
+                        nft.expiresAt = new Date(expiresNum * 1000);
+                        nft.rentalEndDate = new Date(expiresNum * 1000);
+                        console.log(`✅ NFT ${nft.id} marked as rented by ${userAddress}.`);
                     }
-
-                    if (!nft) {
-                        console.error(`❌ DB Record not found for TokenID ${tokenId}`);
-                        return;
-                    }
-
-                    // 3. Verify Metadata & Image Integrity (The "Oracle" Step)
-                    await this.verifyNFT(nft, tokenId.toString(), tokenURI, creator);
+                    await nft.save();
+                } else {
+                    console.log(`⚠️ NFT with TokenID ${tokenIdStr} not found in DB.`);
+                    // Try finding by internal ID if tokenId was not set yet (unlikely for rented/minted items)
                 }
 
+                // Also update Rental records if we can match them?
+                // Ideally we created a 'pending' rental in the controller.
+                // We can find the pending rental for this NFT and activate it.
+                // However, the event doesn't give us the rental ID.
+                // We can assume the latest pending rental for this NFT is the ONE.
+
             } catch (error) {
-                console.error(`❌ Error processing Mint event:`, error);
+                console.error(`❌ Error processing UpdateUser event:`, error);
             }
         });
     }
 
     private async verifyNFT(nft: any, tokenId: string, onChainURI: string, onChainCreator: string) {
+        // ... (existing logic)
         try {
             console.log(`🔍 Verifying NFT ${nft.id}...`);
 

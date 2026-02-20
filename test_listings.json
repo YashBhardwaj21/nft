@@ -1,0 +1,60 @@
+{
+    "status":  "success",
+    "data":  [
+                 {
+                     "_id":  "69982601ae9fcd4e0ee5196e",
+                     "id":  "1771578881211",
+                     "nftId":  "1771515403425",
+                     "sellerId":  "0xdefffd8ee281cb37f91d33b9695f1ebe3db76d6f",
+                     "price":  "20",
+                     "rentalPrice":  "20",
+                     "currency":  "ETH",
+                     "type":  "rent",
+                     "duration":  3,
+                     "minDuration":  1,
+                     "maxDuration":  30,
+                     "status":  "active",
+                     "views":  0,
+                     "likes":  0,
+                     "createdAt":  "2026-02-20T09:14:41.211Z",
+                     "__v":  0,
+                     "nft":  {
+                                 "_id":  "69972e0b7e0762bf2ee549e6",
+                                 "id":  "1771515403425",
+                                 "name":  "Vroommmm",
+                                 "description":  "",
+                                 "image":  "https://gateway.pinata.cloud/ipfs/QmfMYu28G3SB67MtCJUcPjYx4u3g9Wedh6gNERg9CcLMnz",
+                                 "owner":  "0xdefffd8ee281cb37f91d33b9695f1ebe3db76d6f",
+                                 "collection":  "DAO Collection",
+                                 "creator":  "0xdefffd8ee281cb37f91d33b9695f1ebe3db76d6f",
+                                 "price":  0,
+                                 "rentalPrice":  20,
+                                 "maxDuration":  3,
+                                 "currency":  "ETH",
+                                 "status":  "listing",
+                                 "isEscrowed":  false,
+                                 "renterWallet":  null,
+                                 "expiresAt":  null,
+                                 "views":  0,
+                                 "fileHash":  "a69d6efc15dc4506f475fd705e0220c39103c743e6a6e19d9585893fc657dd51",
+                                 "tokenURI":  "https://gateway.pinata.cloud/ipfs/QmS98xHeZ5NWB1YNureTAVCTchS5hAMaZb5wiwGLmqkG1f",
+                                 "imageCID":  "QmfMYu28G3SB67MtCJUcPjYx4u3g9Wedh6gNERg9CcLMnz",
+                                 "metadataCID":  "QmS98xHeZ5NWB1YNureTAVCTchS5hAMaZb5wiwGLmqkG1f",
+                                 "mintStatus":  "confirmed",
+                                 "createdAt":  "2026-02-19T15:36:43.433Z",
+                                 "updatedAt":  "2026-02-19T15:36:43.433Z",
+                                 "__v":  0,
+                                 "mintTxHash":  "0x6d524537e37475478579cc9cce494aebf78cbc8d604d8f44b4d46f41ed2a60a4",
+                                 "blockNumber":  10293528,
+                                 "tokenId":  "2",
+                                 "collectionName":  "DAO Collection"
+                             }
+                 }
+             ],
+    "pagination":  {
+                       "page":  1,
+                       "limit":  20,
+                       "total":  1,
+                       "totalPages":  1
+                   }
+}

@@ -453,7 +453,7 @@ const MyNFTs = () => {
                           {activeListings.map((listing: any) => (
                             <NFTCard
                               key={listing.id}
-                              nft={{ ...listing.nft, id: listing.id, price: listing.price, rentalPrice: listing.rentalPrice }}
+                              nft={{ ...listing.nft, id: listing.id, collectionName: listing.nft.collectionName || listing.nft.collection, price: listing.price, rentalPrice: listing.rentalPrice }}
                               status="listing"
                               isOwner={true}
                               onAction={handleAction}

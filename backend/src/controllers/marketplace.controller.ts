@@ -85,7 +85,7 @@ export const searchListings = async (req: Request, res: Response) => {
                 $match: {
                     $or: [
                         { 'nft.name': searchRegex },
-                        { 'nft.collection': searchRegex }
+                        { 'nft.collectionName': searchRegex }
                     ]
                 }
             });
@@ -307,6 +307,13 @@ export const listForRent = async (req: Request, res: Response) => {
         // req.user is added by protect middleware
         const userId = (req as any).user.id;
 
+        if (price === undefined || price === null || isNaN(Number(price))) {
+            return res.status(400).json({ status: 'error', error: 'Valid price is required' });
+        }
+        if (duration === undefined || duration === null || isNaN(Number(duration))) {
+            return res.status(400).json({ status: 'error', error: 'Valid duration is required' });
+        }
+
         // 1. Find NFT
         const nft = await NFTModel.findOne({ id });
         if (!nft) {
@@ -345,6 +352,7 @@ export const listForRent = async (req: Request, res: Response) => {
         nft.rentalPrice = Number(price);
         nft.maxDuration = Number(duration);
         nft.isEscrowed = false; // Not escrowed yet, just listed
+        if (!nft.collectionName) nft.collectionName = 'DAO Collection'; // Patch for old data missing collectionName
         await nft.save();
 
         res.status(201).json({

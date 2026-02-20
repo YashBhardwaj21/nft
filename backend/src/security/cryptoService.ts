@@ -193,33 +193,21 @@ export class CryptoService {
      * @throws and crashes server if any check fails
      */
     static async selfTest(): Promise<void> {
-        console.log('🔐 Running CryptoService Self-Test...');
-
         // ── 1. SHA-256 NIST Vector ────────────────────────────────────
         const shaResult = sha256('abc');
         const shaExpected = 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad';
-        if (shaResult !== shaExpected) {
-            throw new Error(`SHA-256 self-test FAILED. Got: ${shaResult}`);
-        }
-        console.log('  ✅ SHA-256');
+        if (shaResult !== shaExpected) throw new Error(`SHA-256 self-test FAILED. Got: ${shaResult}`);
 
-        // ── 2. Keccak-256 Empty String (pre-standardization) ──────────
+        // ── 2. Keccak-256 Empty String ────────────────────────────────
         const keccakResult = keccak256(Buffer.alloc(0));
         const keccakExpected = 'c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470';
-        if (keccakResult !== keccakExpected) {
-            throw new Error(`Keccak-256 self-test FAILED. Got: ${keccakResult}`);
-        }
-        console.log('  ✅ Keccak-256');
+        if (keccakResult !== keccakExpected) throw new Error(`Keccak-256 self-test FAILED. Got: ${keccakResult}`);
 
         // ── 3. EC Math: n × G = infinity ──────────────────────────────
         const nG = scalarMultiply(CURVE.n, G);
-        if (!isPointAtInfinity(nG)) {
-            throw new Error(`EC math self-test FAILED: n×G is not infinity`);
-        }
-        console.log('  ✅ secp256k1 (n×G = ∞)');
+        if (!isPointAtInfinity(nG)) throw new Error(`EC math self-test FAILED: n×G is not infinity`);
 
         // ── 4. ECDSA Recovery Oracle ──────────────────────────────────
-        // Try ethers as correctness oracle (available in dev, not prod)
         try {
             const ethers = await import('ethers');
             const testKey = '0x' + 'ab'.repeat(32);
@@ -227,29 +215,17 @@ export class CryptoService {
             const testMsg = 'CryptoService self-test';
             const sig = await wallet.signMessage(testMsg);
             const ethersAddr = ethers.verifyMessage(testMsg, sig);
-
             const customAddr = recoverAddress(testMsg, sig);
-
             if (customAddr.toLowerCase() !== ethersAddr.toLowerCase()) {
-                throw new Error(
-                    `ECDSA oracle MISMATCH:\n  ethers:  ${ethersAddr}\n  custom:  ${customAddr}`
-                );
+                throw new Error(`ECDSA oracle MISMATCH: ethers=${ethersAddr} custom=${customAddr}`);
             }
-            console.log('  ✅ ECDSA recovery (verified against ethers oracle)');
         } catch (e: any) {
             if (e.message?.includes('MISMATCH')) throw e;
-            // ethers not available (production) — use address derivation test
-            // Private key 1 → public key = G → address is well-known
             const addr1 = publicKeyToAddress(G);
             const expectedAddr1 = '0x7e5f4552091a69125d5dfcb7b8c2659029395bdf';
             if (addr1.toLowerCase() !== expectedAddr1) {
-                throw new Error(
-                    `ECDSA address derivation FAILED:\n  got:      ${addr1}\n  expected: ${expectedAddr1}`
-                );
+                throw new Error(`ECDSA address derivation FAILED: got=${addr1}`);
             }
-            console.log('  ✅ ECDSA address derivation (ethers not available, using known vector)');
         }
-
-        console.log('🔐 CryptoService Self-Test PASSED');
     }
 }

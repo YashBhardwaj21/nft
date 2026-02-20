@@ -7,7 +7,7 @@ const nftSchema = new mongoose.Schema<NFT>({
     description: { type: String },
     image: { type: String, required: true },
     owner: { type: String, required: true, ref: 'User' }, // Reference to User ID
-    collection: { type: String, required: true },
+    collectionName: { type: String, required: true, default: 'DAO Collection' },
     creator: { type: String, required: true },
     price: { type: Number, required: true }, // Changed to Number for calcs
     rentalPrice: { type: Number, default: 0 },

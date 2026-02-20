@@ -54,14 +54,14 @@ const Marketplace = () => {
 
   const fetchTrending = async () => {
     try {
-      const response = await api.get(`/marketplace/listings?sortBy=trending&limit=4`);
+      const response = await api.get(`/marketplace/trending?limit=4`);
       setTrendingNfts(mapResponseToNFTs(response.data.data));
     } catch (e) { console.error("Failed to fetch trending", e); }
   };
 
   const fetchNewArrivals = async () => {
     try {
-      const response = await api.get(`/marketplace/listings?sortBy=recent&limit=4`);
+      const response = await api.get(`/marketplace/search?sortBy=recent&limit=4`);
       setNewArrivals(mapResponseToNFTs(response.data.data));
     } catch (e) { console.error("Failed to fetch new arrivals", e); }
   };
@@ -73,7 +73,7 @@ const Marketplace = () => {
       if (sortBy) queryParams.append("sortBy", sortBy);
       if (activeCategory !== "All") queryParams.append("category", activeCategory);
 
-      const response = await api.get(`/marketplace/listings?${queryParams.toString()}`);
+      const response = await api.get(`/marketplace/search?${queryParams.toString()}`);
       setAllNfts(mapResponseToNFTs(response.data.data));
     } catch (e) {
       console.error("Failed to fetch browse results", e);
@@ -85,6 +85,7 @@ const Marketplace = () => {
     return data.map((item: any) => ({
       ...item.nft,
       id: item.nft.id,
+      collectionName: item.nft.collectionName || item.nft.collection, // Fallback for legacy
       price: item.price,
       rentalPrice: item.rentalPrice || item.nft.rentalPrice,
       status: item.status === 'sold' ? 'rented' : 'available'

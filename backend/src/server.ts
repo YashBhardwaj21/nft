@@ -1,6 +1,13 @@
 import express, { Application, Request, Response } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+
+// Load environment variables first
+dotenv.config();
+
+import connectDB from './config/db.js';
+import { CryptoService } from './security/cryptoService.js';
+import { chainListener } from './services/chainListener.js';
 import nftRoutes from './routes/nft.routes.js';
 import marketplaceRoutes from './routes/marketplace.routes.js';
 import rentalRoutes from './routes/rental.routes.js';
@@ -9,17 +16,7 @@ import userRoutes from './routes/user.routes.js';
 import demoRoutes from './routes/demo.routes.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
-// Load environment variables
-dotenv.config();
-
 // Connect to Database
-import connectDB from './config/db.js';
-import { CryptoService } from './security/cryptoService.js';
-import { chainListener } from './services/chainListener.js';
-import { quickCheck } from './crypto/quickCheck.js';
-
-// CryptoService.selfTest() is called inside startServer() below.
-
 connectDB();
 
 const app: Application = express();
@@ -64,20 +61,16 @@ const startServer = async () => {
         // Start Chain Listener
         chainListener.start();
 
-        // Run Crypto Self-Test
+        // Run Crypto Self-Test — crashes server if any primitive is broken
         try {
             await CryptoService.selfTest();
-            console.log(`Crypto Self-Test: PASSED ✅`);
-            quickCheck(); // Non-blocking
         } catch (error) {
-            console.error(`Crypto Self-Test: FAILED ❌`, error);
+            console.error('❌ Crypto Self-Test FAILED — aborting server start', error);
             process.exit(1);
         }
 
         app.listen(PORT, () => {
-            console.log(`Server running on port ${PORT}`);
-            console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
-            console.log(`🔗 Health check: http://localhost:${PORT}/health`);
+            console.log(`✅ Server running on port ${PORT} [${process.env.NODE_ENV || 'development'}]`);
         });
     } catch (error) {
         console.error('Failed to start server:', error);

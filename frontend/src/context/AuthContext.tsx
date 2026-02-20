@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { useSignMessage } from 'wagmi';
+import { useSignMessage, useAccount } from 'wagmi';
 
 
 interface User {
@@ -81,6 +81,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     // Wagmi hook for signing messages
     const { signMessageAsync } = useSignMessage();
+    const { chain } = useAccount();
 
     const loginWithWallet = async (address: string) => {
         try {
@@ -109,7 +110,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                 '',
                 `URI: ${uri}`,
                 'Version: 1',
-                'Chain ID: 1',
+                `Chain ID: ${chain?.id || 11155111}`,
                 `Nonce: ${nonceData.nonce}`,
                 `Issued At: ${issuedAt}`,
             ].join('\n');

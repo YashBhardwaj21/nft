@@ -66,69 +66,72 @@ export const returnNFTByNFTId = async (req: Request, res: Response) => {
 /**
  * Rent an NFT from a Listing (Model A)
  */
+import { ethers } from 'ethers';
+import fs from 'fs';
+import path from 'path';
+
+// Load ABI
+const ABI_PATH = path.join(__dirname, '../../../shared/DAOMarketplaceMarket.json');
+let MARKETPLACE_ABI: any[] = [];
+let MARKETPLACE_ADDRESS = process.env.MARKETPLACE_ADDRESS || '';
+
+if (fs.existsSync(ABI_PATH)) {
+    const data = JSON.parse(fs.readFileSync(ABI_PATH, 'utf8'));
+    MARKETPLACE_ABI = data.abi;
+    if (!MARKETPLACE_ADDRESS) MARKETPLACE_ADDRESS = data.address;
+}
+
+/**
+ * Rent an NFT from a Listing (returns transaction payload)
+ */
 export const rentFromListing = async (req: Request, res: Response) => {
     try {
-        const { nftId, duration } = req.body;
+        const { listingId, nftId, days } = req.body;
         const renterId = (req as any).user.id;
 
-        // 1. Find NFT
-        const nft = await NFTModel.findOne({ id: nftId });
-        if (!nft) {
-            return res.status(404).json({ status: 'error', error: 'NFT not found' });
+        if (!listingId || !days) {
+            return res.status(400).json({ status: 'error', error: 'Missing listingId or days' });
         }
 
-        // 2. Verify Availability
-        if (nft.status === 'rented' || nft.isEscrowed) {
-            return res.status(400).json({ status: 'error', error: 'NFT is already rented or in escrow.' });
+        // 1. Find Listing
+        let targetListingId = listingId;
+
+        // If listingId is not provided, try to find active rental listing for this NFT
+        if (!targetListingId && nftId) {
+            const activeListing = await ListingModel.findOne({ nftId: nftId, status: 'active', type: 'rent' });
+            if (!activeListing) {
+                return res.status(404).json({ status: 'error', error: 'No active rental listing found for this NFT.' });
+            }
+            targetListingId = activeListing.id;
         }
 
-        // 3. Find Listing (Optional validation, but good to check price)
-        const listing = await ListingModel.findOne({ nftId: nftId, status: 'active', type: 'rent' });
-        // If no listing, maybe allow if NFT is 'available' and has rentalPrice? 
-        // Strict mode: Must have active listing.
+        // 2. Fetch Listing from DB to get price (or trust frontend?)
+        const listing = await ListingModel.findOne({ id: targetListingId });
         if (!listing) {
-            return res.status(404).json({ status: 'error', error: 'No active rental listing found for this NFT.' });
+            return res.status(404).json({ status: 'error', error: 'Listing not found' });
         }
 
-        // 4. Mock Payment Check
-        // const cost = nft.rentalPrice * duration;
-        // if (userBalance < cost) throw error...
+        // 3. Generate Transaction Data
+        if (!MARKETPLACE_ADDRESS || MARKETPLACE_ABI.length === 0) {
+            return res.status(503).json({ status: 'error', error: 'Marketplace contract not configured' });
+        }
 
-        // 5. Create Rental Record
-        const startDate = new Date();
-        const endDate = new Date(Date.now() + duration * 24 * 60 * 60 * 1000);
 
-        const newRental = await RentalModel.create({
-            id: Date.now().toString(),
-            nftId: nftId,
-            renterId: renterId,
-            ownerId: nft.owner,
-            rentalPrice: Number(listing.price), // Use listing price
-            duration: Number(duration),
-            currency: 'ETH',
-            startDate: startDate,
-            endDate: endDate,
-            status: 'active',
-            transactionHash: `0x${Math.random().toString(16).substr(2, 40)}`, // Mock tx
-            createdAt: new Date()
-        });
+        const pricePerDay = BigInt(listing.price); // Assuming price is stored in wei as string
+        const totalPrice = pricePerDay * BigInt(days);
 
-        // 6. Update NFT (Enter Escrow)
-        nft.status = 'rented';
-        nft.isEscrowed = true;
-        nft.renterWallet = renterId;
-        nft.expiresAt = endDate;
-        nft.rentalEndDate = endDate;
-        await nft.save();
-
-        // 7. Close Listing
-        listing.status = 'sold'; // Or 'rented' if we add that enum to Listing
-        await listing.save();
+        const iface = new ethers.Interface(MARKETPLACE_ABI);
+        const data = iface.encodeFunctionData("rent", [targetListingId, days]);
 
         res.status(200).json({
             status: 'success',
-            data: newRental,
-            message: 'NFT rented successfully. Asset is now in escrow.'
+            data: {
+                to: MARKETPLACE_ADDRESS,
+                data: data,
+                value: totalPrice.toString(),
+                chainId: 11155111 // Sepolia, or make dynamic
+            },
+            message: 'Transaction generated'
         });
 
     } catch (error: any) {

@@ -68,7 +68,7 @@ const NFTCard = ({ nft, status = 'listing', isOwner = false, onAction }: NFTCard
             <div className="p-5 space-y-4 relative z-10">
                 <div>
                     <div className="flex justify-between items-start mb-2">
-                        <p className="text-[10px] font-bold text-primary tracking-widest uppercase">{nft.collection}</p>
+                        <p className="text-[10px] font-bold text-primary tracking-widest uppercase">{nft.collectionName || nft.collection || 'DAO Collection'}</p>
                         {nft.likes && (
                             <div className="flex items-center gap-1 text-xs text-gray-400">
                                 <Heart className="w-3 h-3 group-hover:text-red-500 transition-colors" />

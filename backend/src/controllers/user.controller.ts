@@ -3,6 +3,7 @@ import { UserStats, ApiResponse } from '../types/index.js';
 import { UserModel } from '../models/User.js';
 import { NFTModel } from '../models/NFT.js';
 import { RentalModel } from '../models/Rental.js';
+import { ListingModel } from '../models/Listing.js';
 
 /**
  * Get user statistics
@@ -17,8 +18,8 @@ export const getUserStats = async (req: Request, res: Response) => {
         // Calculate total value
         const totalValue = userNFTs.reduce((sum, nft) => sum + (nft.price || 0), 0);
 
-        // Count active listings (NFTs available for rent)
-        const activeListings = userNFTs.filter(nft => nft.status === 'available').length;
+        // Count actual active listings (NFTs listed on marketplace)
+        const activeListings = await ListingModel.countDocuments({ sellerId: id, status: 'active' });
 
         // Active Rentals (as Tenant)
         const activeRentalsCount = await RentalModel.countDocuments({
@@ -129,24 +130,25 @@ export const getUserListings = async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
 
-        // Get user's NFTs that are listed
-        const userListings = await NFTModel.find({
-            owner: id,
-            status: 'available'
+        // Get actual active listings from ListingModel
+        const listings = await ListingModel.find({
+            sellerId: id,
+            status: 'active'
         });
 
-        // For compatibility with frontend "Listings" model, we map it
-        // Or just return the NFTs directly since they have price info
+        // Enrich with NFT data
+        const enrichedListings = await Promise.all(listings.map(async (listing) => {
+            const nft = await NFTModel.findOne({ id: listing.nftId });
+            return {
+                ...listing.toObject(),
+                nft
+            };
+        }));
+
         res.status(200).json({
             status: 'success',
-            data: userListings.map(nft => ({
-                id: nft.id + '_listing', // mock listing ID
-                nft: nft,
-                price: nft.price,
-                rentalPrice: nft.rentalPrice || (nft.price ? nft.price * 0.1 : 0),
-                duration: 7 // default mock
-            })),
-            message: `Found ${userListings.length} active listings`
+            data: enrichedListings,
+            message: `Found ${enrichedListings.length} active listings`
         });
     } catch (error: any) {
         res.status(500).json({

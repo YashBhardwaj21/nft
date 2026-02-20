@@ -6,7 +6,7 @@ export interface NFT {
     tokenId?: string;
     contractAddress?: string;
     owner: string;
-    collection: string;
+    collectionName: string;
     creator: string;
     price: number; // Changed to number
     rentalPrice?: number; // Changed to number
@@ -53,13 +53,16 @@ export interface Rental {
 export interface Listing {
     id: string;
     nftId: string;
+    tokenAddress?: string; // Address of the NFT contract
     sellerId: string;
     price: string;
     rentalPrice?: string;
     currency: string;
     type: 'sale' | 'rent'; // New
     duration?: number; // in days
-    status: 'active' | 'sold' | 'cancelled';
+    minDuration?: number;
+    maxDuration?: number;
+    status: 'active' | 'sold' | 'rented' | 'cancelled';
     views: number;
     likes: number;
     createdAt?: Date;
