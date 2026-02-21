@@ -95,7 +95,7 @@ const Marketplace = () => {
       collectionName: item.nft.collectionName || item.nft.collection, // Fallback for legacy
       price: item.price,
       rentalPrice: item.rentalPrice || item.nft.rentalPrice,
-      status: item.confirmed === false ? 'published_pending' : (item.status === 'sold' ? 'rented' : 'available'),
+      status: ['LOCAL_DRAFT', 'PENDING_CREATE', 'PENDING_CANCEL'].includes(item.status) ? 'published_pending' : (item.status === 'RENTED' ? 'rented' : 'listing'),
       confirmed: item.confirmed
     }));
   };

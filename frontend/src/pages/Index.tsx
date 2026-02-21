@@ -14,7 +14,7 @@ const Index = () => {
     activeUsers: 0,
     platformFees: 0
   });
-  const [userNFTs, setUserNFTs] = useState<any[]>([]);
+  const [trendingNFTs, setTrendingNFTs] = useState<any[]>([]);
   const [loadingNFTs, setLoadingNFTs] = useState(true);
 
   useEffect(() => {
@@ -39,28 +39,21 @@ const Index = () => {
   }, []);
 
   useEffect(() => {
-    const fetchUserNFTs = async () => {
-      const userId = user?.id || user?.walletAddress;
-      if (!userId) {
-        setUserNFTs([]);
-        setLoadingNFTs(false);
-        return;
-      }
-
+    const fetchTrendingNFTs = async () => {
       try {
         setLoadingNFTs(true);
-        const response = await api.get(`/nfts/user/${userId}`);
+        const response = await api.get(`/marketplace/trending?limit=3`);
         if (response.data?.status === 'success') {
-          setUserNFTs(response.data.data || []);
+          setTrendingNFTs(response.data.data || []);
         }
       } catch (error) {
-        console.error("Failed to fetch user NFTs:", error);
+        console.error("Failed to fetch trending NFTs:", error);
       } finally {
         setLoadingNFTs(false);
       }
     };
 
-    fetchUserNFTs();
+    fetchTrendingNFTs();
   }, [user]);
 
   return (
@@ -214,25 +207,23 @@ const Index = () => {
         <section className="mb-24 px-6 md:px-12 max-w-7xl mx-auto">
           <div className="flex items-end justify-between mb-10">
             <div>
-              <h2 className="text-3xl font-bold mb-2 text-white">Your Minted NFTs</h2>
-              <p className="text-gray-400">NFTs you have created on the platform</p>
+              <h2 className="text-3xl font-bold mb-2 text-white">Trending Rentals</h2>
+              <p className="text-gray-400">Hot items available on the market</p>
             </div>
             <Button variant="link" className="text-primary" asChild>
-              <Link to={user ? "/profile" : "/login"}>View All</Link>
+              <Link to="/marketplace">View All</Link>
             </Button>
           </div>
 
           {loadingNFTs ? (
-            <div className="text-center text-gray-400 py-10">Loading your NFTs...</div>
-          ) : !user ? (
-            <div className="text-center text-gray-400 py-10">Connect your wallet to see your NFTs here.</div>
-          ) : userNFTs.length === 0 ? (
-            <div className="text-center text-gray-400 py-10">You haven't minted any NFTs yet.</div>
+            <div className="text-center text-gray-400 py-10">Loading trending items...</div>
+          ) : trendingNFTs.length === 0 ? (
+            <div className="text-center text-gray-400 py-10">No trending items right now.</div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-              {userNFTs.slice(0, 3).map(nft => (
-                <div key={nft.id || nft._id} className="transform hover:translate-y-[-10px] transition-transform duration-300">
-                  <NFTCard nft={nft} status={nft.status || "available"} />
+              {trendingNFTs.slice(0, 3).map((item: any) => (
+                <div key={item.id || item._id} className="transform hover:translate-y-[-10px] transition-transform duration-300">
+                  <NFTCard nft={{ ...item.nft, price: item.price }} status="listing" />
                 </div>
               ))}
             </div>

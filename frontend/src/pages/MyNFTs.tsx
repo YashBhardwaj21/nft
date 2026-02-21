@@ -15,9 +15,11 @@ import RentListingModal from '@/components/rentals/RentListingModal';
 import MintModal from '@/components/mint/MintModal';
 import { Badge } from '@/components/ui/badge';
 import { WalletConnectButton } from '@/components/WalletConnectButton';
+import { useSendTransaction } from 'wagmi';
 
 const MyNFTs = () => {
   const { user, isAuthenticated, logout, loading: authLoading } = useAuth();
+  const { sendTransactionAsync } = useSendTransaction();
   console.log("MyNFTs Render: isAuthenticated=", isAuthenticated, "authLoading=", authLoading);
   const navigate = useNavigate();
 
@@ -175,14 +177,50 @@ const MyNFTs = () => {
     }
   };
 
-  const handleRemoveListing = async (listingId: string) => {
+  const handleRemoveListing = async (listingIdOrNftId: string) => {
+    let toastId;
     try {
-      await api.delete(`/marketplace/listings/${listingId}/cancel`);
-      toast.success('Listing removed. Your NFT is now available.');
-      setActiveListings(prev => prev.filter((l: any) => l.id !== listingId));
+      const listing = activeListings.find(l => l.id === listingIdOrNftId || l.nft?.id === listingIdOrNftId || l.nftId === listingIdOrNftId);
+      if (!listing) return;
+
+      if (listing.status === 'ACTIVE') {
+        toastId = toast.loading('Generating cancellation transaction...');
+
+        // 1. Get transaction payload
+        const response = await api.post('/marketplace/cancel/generate', { listingId: listing.id });
+        const txData = response.data.data;
+
+        toast.loading('Please confirm transaction in your wallet...', { id: toastId });
+
+        // 2. Send transaction via Wagmi
+        const hash = await sendTransactionAsync({
+          to: txData.to,
+          data: txData.data
+        });
+
+        toast.loading('Confirming on blockchain...', { id: toastId });
+
+        // 3. Notify backend
+        await api.post('/marketplace/cancel/notify', {
+          onChainListingId: listing.onChainListingId,
+          txHash: hash
+        }, { headers: { 'Idempotency-Key': crypto.randomUUID() } });
+
+        toast.success('Cancellation submitted! It will be removed once confirmed.', { id: toastId });
+      } else {
+        // Drop local drafts
+        await api.delete(`/marketplace/listings/${listing.id}/cancel`);
+        toast.success('Draft listing removed.');
+        setActiveListings(prev => prev.filter((l: any) => l.id !== listing.id));
+      }
     } catch (e: any) {
       console.error(e);
-      toast.error(e.response?.data?.error || 'Failed to remove listing');
+      const errorMsg = e.response?.data?.error || e.message || 'Failed to remove listing';
+      if (toastId) {
+        toast.error(errorMsg, { id: toastId });
+      } else {
+        toast.error(errorMsg);
+      }
     }
   };
 
@@ -453,7 +491,7 @@ const MyNFTs = () => {
                             <NFTCard
                               key={listing.id}
                               nft={{ ...listing.nft, id: listing.nft.id || listing.nftId, collectionName: listing.nft?.collectionName || listing.nft?.collection, price: listing.price, rentalPrice: listing.rentalPrice }}
-                              status={listing.confirmed === false ? 'published_pending' : 'listing'}
+                              status={['LOCAL_DRAFT', 'PENDING_CREATE', 'PENDING_CANCEL'].includes(listing.status) ? 'published_pending' : (listing.status === 'RENTED' ? 'rented' : 'listing')}
                               isOwner={true}
                               onAction={handleAction}
                             />
