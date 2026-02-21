@@ -1,19 +1,29 @@
 import { Router } from 'express';
 import * as marketplaceController from '../controllers/marketplace.controller.js';
-
 import { protect } from '../middleware/auth.js';
 
 const router: Router = Router();
 
-// ... existing routes ...
-
 /**
- * @route   POST /api/marketplace/list/:id
- * @desc    List an NFT for rent
+ * @route   POST /api/marketplace/draft
+ * @desc    Create a draft listing for an NFT (Phase 1 of chain-first flow)
  * @access  Private
  */
-router.post('/list/:id', protect, marketplaceController.listForRent);
+router.post('/draft', protect, marketplaceController.createListingDraft);
 
+/**
+ * @route   POST /api/marketplace/notify
+ * @desc    Notify backend of submitted tx Hash for listing (Phase 2 of chain-first flow)
+ * @access  Private
+ */
+router.post('/notify', protect, marketplaceController.notifyListingTx);
+
+/**
+ * @route   POST /api/marketplace/cancel/notify
+ * @desc    Notify backend of submitted tx Hash for cancelled listing
+ * @access  Private
+ */
+router.post('/cancel/notify', protect, marketplaceController.notifyCancelListing);
 
 
 /**
@@ -43,26 +53,5 @@ router.get('/trending', marketplaceController.getTrendingNFTs);
  * @access  Public
  */
 router.get('/stats', marketplaceController.getMarketplaceStats);
-
-/**
- * @route   POST /api/marketplace/listings
- * @desc    Create a new marketplace listing
- * @access  Public (will be protected later)
- */
-router.post('/listings', marketplaceController.createListing);
-
-/**
- * @route   DELETE /api/marketplace/listings/:id
- * @desc    Delete a marketplace listing (legacy / admin)
- * @access  Public
- */
-router.delete('/listings/:id', marketplaceController.deleteListing);
-
-/**
- * @route   DELETE /api/marketplace/listings/:id/cancel
- * @desc    Cancel (delist) a listing – resets NFT status to available
- * @access  Private (seller only)
- */
-router.delete('/listings/:id/cancel', protect, marketplaceController.cancelListing);
 
 export default router;

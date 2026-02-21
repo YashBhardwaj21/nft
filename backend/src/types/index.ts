@@ -23,10 +23,12 @@ export interface NFT {
     rentalEndDate?: Date;
 
     // Chain Data (Minting)
+    tokenAddress?: string;
     fileHash?: string;
     tokenURI?: string;
     imageCID?: string;
     metadataCID?: string;
+    metadataHash?: string;
     mintTxHash?: string;
     blockNumber?: number;
     mintStatus?: 'draft' | 'pending' | 'confirmed' | 'failed';
@@ -45,7 +47,7 @@ export interface Rental {
     currency: string;
     startDate: Date;
     endDate: Date;
-    status: 'active' | 'completed' | 'cancelled';
+    status: 'pending' | 'active' | 'completed' | 'cancelled';
     transactionHash?: string;
     createdAt?: Date;
 }
@@ -54,6 +56,7 @@ export interface Listing {
     id: string;
     nftId: string;
     tokenAddress?: string; // Address of the NFT contract
+    tokenId?: string; // Added for chain-first integration
     onChainListingId?: number; // Added to map to DAOMarketplaceMarket listingId
     sellerId: string;
     price: string;
@@ -63,9 +66,15 @@ export interface Listing {
     duration?: number; // in days
     minDuration?: number;
     maxDuration?: number;
-    status: 'active' | 'sold' | 'rented' | 'cancelled';
+    metadataHash?: string;
+    status: 'draft' | 'pending' | 'confirmed' | 'cancelled' | 'failed';
     views: number;
     likes: number;
+    confirmed?: boolean;
+    txHash?: string;
+    blockNumber?: number;
+    confirmedAt?: Date;
+    tokenURI?: string;
     createdAt?: Date;
 }
 

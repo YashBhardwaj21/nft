@@ -15,7 +15,8 @@ const MINT_ABI = [
     {
         "inputs": [
             { "internalType": "address", "name": "to", "type": "address" },
-            { "internalType": "string", "name": "uri", "type": "string" }
+            { "internalType": "string", "name": "uri", "type": "string" },
+            { "internalType": "bytes32", "name": "metadataHash", "type": "bytes32" }
         ],
         "name": "mint",
         "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
@@ -49,10 +50,10 @@ export default function MintModal({ isOpen, onClose, onSuccess }: MintModalProps
     const [txHash, setTxHash] = useState<`0x${string}` | undefined>(undefined);
 
     // Wagmi Hooks
-    const { writeContractAsync, isPending: isWalletSigning } = useWriteContract();
+    const { writeContractAsync } = useWriteContract();
 
     // Wait for Tx
-    const { isLoading: isTxConfirming, isSuccess: isTxSuccess } = useWaitForTransactionReceipt({
+    const { isSuccess: isTxSuccess } = useWaitForTransactionReceipt({
         hash: txHash,
     });
 
@@ -86,7 +87,7 @@ export default function MintModal({ isOpen, onClose, onSuccess }: MintModalProps
                 headers: { 'Content-Type': 'multipart/form-data' }
             });
 
-            const { tokenURI, draftId: newDraftId, contractAddress } = prepRes.data.data;
+            const { tokenURI, draftId: newDraftId, contractAddress, fileHash } = prepRes.data.data;
             setDraftId(newDraftId);
 
             // 2. Wallet Sign & Send
@@ -103,7 +104,7 @@ export default function MintModal({ isOpen, onClose, onSuccess }: MintModalProps
                 address: targetContract as `0x${string}`,
                 abi: MINT_ABI,
                 functionName: 'mint',
-                args: [walletAddress, tokenURI],
+                args: [walletAddress, tokenURI, `0x${fileHash}`],
             });
 
             setTxHash(hash);
@@ -126,7 +127,7 @@ export default function MintModal({ isOpen, onClose, onSuccess }: MintModalProps
     // EFFECT: Confirm on Backend
     if (step === 'confirming' && isTxSuccess && txHash && draftId) {
         // Only run once
-        api.post('/nfts/confirm', { draftId, txHash })
+        api.post('/nfts/confirm', { draftId, txHash }, { headers: { 'Idempotency-Key': crypto.randomUUID() } })
             .then(() => {
                 setStep('success');
                 toast.success("Minted successfully!");
@@ -150,7 +151,7 @@ export default function MintModal({ isOpen, onClose, onSuccess }: MintModalProps
     };
 
     return (
-        <Dialog open={isOpen} onOpenChange={(open) => !open && reset()}>
+        <Dialog open={isOpen} onOpenChange={(open: boolean) => !open && reset()}>
             <DialogContent className="sm:max-w-[425px] bg-[#12141f] border-white/10 text-white">
                 <DialogHeader>
                     <DialogTitle>Mint New NFT</DialogTitle>

@@ -1,41 +1,74 @@
 import mongoose from 'mongoose';
 
 export interface Rental extends mongoose.Document {
-    nftId: string;
-    renterId: string;
-    ownerId: string;
-    rentalPrice: number;
-    duration: number; // in days
-    startDate: Date;
-    endDate: Date;
-    status: 'active' | 'completed' | 'cancelled';
-    transactionHash?: string; // For future blockchain integration
+    // On-chain identity
+    onChainListingId: number;
+    tokenAddress: string;
+    tokenId: string;
+
+    // Wallet identities (NOT user ids)
+    renterWallet: string;
+    ownerWallet: string;
+
+    // Economic data
+    totalPrice: string; // store wei string to avoid precision loss
+
+    // Time from blockchain
+    startBlock?: number;
+    startDate?: Date;
+    expiresAt?: Date;
+
+    // Lifecycle
+    status: 'draft' | 'pending' | 'active' | 'confirmed' | 'expired' | 'cancelled';
+
+    // Idempotency
+    txHash: string;
+    logIndex?: number;
+
     createdAt: Date;
     updatedAt: Date;
 }
 
 const rentalSchema = new mongoose.Schema<Rental>({
-    nftId: { type: String, required: true, ref: 'NFT' },
-    renterId: { type: String, required: true, ref: 'User' },
-    ownerId: { type: String, required: true, ref: 'User' },
-    rentalPrice: { type: Number, required: true },
-    duration: { type: Number, required: true },
+    onChainListingId: { type: Number },
+    tokenAddress: { type: String, required: true, lowercase: true },
+    tokenId: { type: String, required: true },
+
+    renterWallet: { type: String, required: true, lowercase: true },
+    ownerWallet: { type: String, lowercase: true },
+
+    totalPrice: { type: String },
+
+    startBlock: { type: Number },
     startDate: { type: Date, default: Date.now },
-    endDate: { type: Date, required: true },
+    expiresAt: { type: Date },
+
     status: {
         type: String,
-        enum: ['active', 'completed', 'cancelled'],
-        default: 'active'
+        enum: ['draft', 'pending', 'active', 'confirmed', 'expired', 'cancelled'],
+        default: 'pending'
     },
-    transactionHash: { type: String },
+
+    txHash: { type: String, required: true },
+    logIndex: { type: Number },
+
     createdAt: { type: Date, default: Date.now },
     updatedAt: { type: Date, default: Date.now }
 });
 
-// Pre-save middleware to update timestamps
-rentalSchema.pre('save', function (next) {
-    this.updatedAt = new Date();
-    next();
-});
+/**
+ * Prevent duplicate processing of same blockchain event
+ * Sparse allows pending records with no logIndex to coexist
+ */
+rentalSchema.index({ txHash: 1, logIndex: 1 }, { unique: true, sparse: true });
+
+/**
+ * Fast queries:
+ * - user's rentals
+ * - NFT rental history
+ */
+rentalSchema.index({ renterWallet: 1 });
+rentalSchema.index({ ownerWallet: 1 });
+rentalSchema.index({ tokenAddress: 1, tokenId: 1 });
 
 export const RentalModel = mongoose.model<Rental>('Rental', rentalSchema);

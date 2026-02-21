@@ -64,3 +64,16 @@ export const uploadJSON = async (json: any, name: string): Promise<string> => {
 export const uploadToIPFS = async (file: Express.Multer.File): Promise<string> => {
     return uploadFileBuffer(file.buffer, file.originalname, file.mimetype);
 };
+
+/**
+ * Fetch JSON from IPFS HTTP Gateway
+ */
+export const getJSON = async (url: string): Promise<string> => {
+    try {
+        const res = await axios.get(url);
+        return typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
+    } catch (error) {
+        console.error('Error fetching JSON from IPFS:', error);
+        throw new Error('Failed to fetch JSON from IPFS');
+    }
+};

@@ -47,6 +47,24 @@ async function main() {
     fs.writeFileSync(envPath, envContent);
     console.log("📝 Addresses written to backend/.env");
 
+    // 3.5 Update frontend .env
+    const frontendEnvPath = path.join(__dirname, "..", "frontend", ".env");
+    if (fs.existsSync(frontendEnvPath)) {
+        let frontendEnvContent = fs.readFileSync(frontendEnvPath, "utf8");
+        const updateFrontendEnv = (key: string, value: string) => {
+            const regex = new RegExp(`^${key}=.*`, "m");
+            if (regex.test(frontendEnvContent)) {
+                frontendEnvContent = frontendEnvContent.replace(regex, `${key}=${value}`);
+            } else {
+                frontendEnvContent += `\n${key}=${value}`;
+            }
+        };
+        updateFrontendEnv("VITE_CONTRACT_ADDRESS", nftAddress);
+        updateFrontendEnv("VITE_MARKETPLACE_ADDRESS", marketAddress);
+        fs.writeFileSync(frontendEnvPath, frontendEnvContent);
+        console.log("📝 Addresses written to frontend/.env");
+    }
+
     // 4. Save ABIs to shared/
     const sharedDir = path.join(__dirname, "..", "shared");
     if (!fs.existsSync(sharedDir)) fs.mkdirSync(sharedDir, { recursive: true });

@@ -7,3 +7,5 @@ dist/
 .idea/
 .env.example/
 
+
+.listener_state

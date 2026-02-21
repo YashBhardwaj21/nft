@@ -1,13 +1,11 @@
 import { Link, useLocation } from "react-router-dom";
 import {
-  Wallet,
   Search,
   User,
   LayoutGrid,
   Sparkles
 } from "lucide-react";
 
-import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { cn } from "@/lib/utils";
 import { WalletConnectButton } from "../WalletConnectButton";

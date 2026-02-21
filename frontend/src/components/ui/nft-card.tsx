@@ -6,7 +6,7 @@ import { NFT } from "../../types";
 
 interface NFTCardProps {
     nft: NFT;
-    status?: 'listing' | 'owned' | 'rented';
+    status?: 'listing' | 'owned' | 'rented' | 'published_pending';
     /** Pass true when the card is shown in the seller's own Listings tab */
     isOwner?: boolean;
     onAction?: (action: string, id: string) => void;
@@ -48,6 +48,9 @@ const NFTCard = ({ nft, status = 'listing', isOwner = false, onAction }: NFTCard
                     )}
                     {status === 'listing' && (
                         <Badge className="backdrop-blur-md bg-blue-500/20 text-blue-300 border-blue-500/30">Listed</Badge>
+                    )}
+                    {status === 'published_pending' && (
+                        <Badge className="backdrop-blur-md bg-zinc-500/30 text-zinc-300 border-zinc-500/40 animate-pulse">Publishing...</Badge>
                     )}
                 </div>
 
@@ -93,7 +96,7 @@ const NFTCard = ({ nft, status = 'listing', isOwner = false, onAction }: NFTCard
                 <div className="flex items-end justify-between gap-3">
                     <div className="flex flex-col gap-0.5">
                         <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">
-                            {status === 'listing' ? 'Price' : status === 'rented' ? 'Expires' : 'Est. Value'}
+                            {(status === 'listing' || status === 'published_pending') ? 'Price' : status === 'rented' ? 'Expires' : 'Est. Value'}
                         </span>
                         {status === 'rented' ? (
                             <span className="text-sm font-bold text-white">
@@ -113,6 +116,11 @@ const NFTCard = ({ nft, status = 'listing', isOwner = false, onAction }: NFTCard
                         {status === 'listing' && !isOwner && (
                             <Button size="sm" className="w-full bg-white text-black hover:bg-gray-200 font-bold shadow-lg shadow-white/5 h-9 rounded-xl" onClick={() => onAction?.('rent', nft.id)}>
                                 Rent
+                            </Button>
+                        )}
+                        {status === 'published_pending' && (
+                            <Button size="sm" disabled className="w-full bg-white/10 text-gray-400 font-bold shadow-lg h-9 rounded-xl cursor-not-allowed border border-white/5">
+                                Pending...
                             </Button>
                         )}
                         {/* Owner's Listings tab: Remove listing button */}

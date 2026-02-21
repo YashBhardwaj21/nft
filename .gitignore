@@ -137,3 +137,12 @@ typechain-types/
 .DS_Store
 Thumbs.db
 
+# Project Specific Debug and Logs
+debug-*.json
+test-*.ts
+test_*.ts
+out.json
+*-output.txt
+tsc_*.txt
+market-events-dump.json
+

@@ -2,424 +2,196 @@ import { Request, Response } from 'express';
 import { RentalModel } from '../models/Rental.js';
 import { NFTModel } from '../models/NFT.js';
 import { ListingModel } from '../models/Listing.js';
-
-/**
- * Return a rented NFT by NFT ID
- */
-export const returnNFTByNFTId = async (req: Request, res: Response) => {
-    try {
-        const { nftId } = req.params; // from /return/:nftId
-        const userId = (req as any).user.id;
-
-        // 1. Find NFT
-        const nft = await NFTModel.findOne({ id: nftId });
-        if (!nft) {
-            return res.status(404).json({ status: 'error', error: 'NFT not found' });
-        }
-
-        // 2. Validate Return Eligibility
-        if (nft.status !== 'rented' && !nft.isEscrowed) {
-            return res.status(400).json({ status: 'error', error: 'NFT is not currently rented.' });
-        }
-
-        // Check if caller is renter OR if rental has expired (allowing owner to reclaim)
-        const isRenter = nft.renterWallet === userId;
-        const isOwner = nft.owner === userId;
-        const isExpired = nft.expiresAt && new Date() > new Date(nft.expiresAt);
-
-        if (!isRenter && !(isOwner && isExpired)) {
-            return res.status(403).json({
-                status: 'error',
-                error: 'Not authorized. Only the renter can return, or owner if expired.'
-            });
-        }
-
-        // 3. Find and Close Rental Record
-        const rental = await RentalModel.findOne({ nftId: nftId, status: 'active' });
-        if (rental) {
-            rental.status = 'completed';
-            rental.endDate = new Date();
-            await rental.save();
-        }
-
-        // 4. Update NFT
-        nft.status = 'available'; // Released back to owner
-        nft.isEscrowed = false;
-        nft.renterWallet = undefined;
-        nft.expiresAt = undefined;
-        nft.rentalEndDate = undefined;
-        await nft.save();
-
-        res.status(200).json({
-            status: 'success',
-            message: 'NFT returned successfully'
-        });
-
-    } catch (error: any) {
-        console.error("Return Error:", error);
-        res.status(500).json({ status: 'error', error: error.message });
-    }
-};
-
-// ... existing functions ...
-
-/**
- * Rent an NFT from a Listing (Model A)
- */
 import { ethers } from 'ethers';
 import fs from 'fs';
 import path from 'path';
 
-// Load ABI
-const ABI_PATH = path.join(__dirname, '../../../shared/DAOMarketplaceMarket.json');
-let MARKETPLACE_ABI: any[] = [];
+// ABI load
+const ABI_PATH = path.join(process.cwd(), '..', 'shared', 'DAOMarketplaceMarket.json');
+let MARKETPLACE_ABI = [];
 let MARKETPLACE_ADDRESS = process.env.MARKETPLACE_ADDRESS || '';
 
 if (fs.existsSync(ABI_PATH)) {
     const data = JSON.parse(fs.readFileSync(ABI_PATH, 'utf8'));
-    MARKETPLACE_ABI = data.abi;
-    if (!MARKETPLACE_ADDRESS) MARKETPLACE_ADDRESS = data.address;
+    MARKETPLACE_ABI = data.abi || [];
+    if (!MARKETPLACE_ADDRESS && data.address) MARKETPLACE_ADDRESS = data.address;
 }
 
 /**
- * Rent an NFT from a Listing (returns transaction payload)
+ * Generate tx payload to rent a listing.
+ * Accepts one of:
+ *  - onChainListingId
+ *  - listingId (DB draft/record id)
+ *  - nftId (app id) -> resolves to active listing for that NFT
  */
 export const rentFromListing = async (req: Request, res: Response) => {
     try {
-        const { listingId, nftId, days } = req.body;
-        const renterId = (req as any).user.id;
+        const { onChainListingId, listingId, nftId, days } = req.body;
+        const renterWallet = (req as any).user?.id; // should be wallet address
+        if (!renterWallet) return res.status(401).json({ status: 'error', error: 'Not authenticated' });
 
-        if ((!listingId && !nftId) || !days) {
-            return res.status(400).json({ status: 'error', error: 'Missing listingId (or nftId) or days' });
+        if (!days || Number(days) <= 0) {
+            return res.status(400).json({ status: 'error', error: 'Invalid rental duration (days) provided' });
         }
 
-        // 1. Find Listing
-        let targetListingId = listingId;
-
-        // If listingId is not provided, try to find active rental listing for this NFT
-        if (!targetListingId && nftId) {
-            const activeListing = await ListingModel.findOne({ nftId: nftId, status: 'active', type: 'rent' });
-            if (!activeListing) {
-                return res.status(404).json({ status: 'error', error: 'No active rental listing found for this NFT.' });
+        // Resolve listing (chain-first)
+        let listing = null;
+        if (onChainListingId !== undefined && onChainListingId !== null) {
+            listing = await ListingModel.findOne({ onChainListingId: Number(onChainListingId) });
+        }
+        if (!listing && listingId) {
+            listing = await ListingModel.findOne({ id: listingId });
+        }
+        if (!listing && nftId) {
+            // nftId is legacy app id; find NFT to map to tokenAddress/tokenId
+            const nft = await NFTModel.findOne({ id: nftId });
+            if (nft) {
+                listing = await ListingModel.findOne({ tokenAddress: nft.tokenAddress, tokenId: nft.tokenId, status: { $in: ['active', 'confirmed'] } });
             }
-            targetListingId = activeListing.id;
         }
 
-        // 2. Fetch Listing from DB to get price (or trust frontend?)
-        const listing = await ListingModel.findOne({ id: targetListingId });
-        if (!listing) {
-            return res.status(404).json({ status: 'error', error: 'Listing not found' });
+        if (!listing) return res.status(404).json({ status: 'error', error: 'Listing not found' });
+
+        // Ensure listing is active/confirmed on-chain
+        if (!['active', 'confirmed'].includes(listing.status)) {
+            return res.status(400).json({ status: 'error', error: `Listing is not active (status=${listing.status})` });
         }
 
-        if (listing.onChainListingId === undefined || listing.onChainListingId === null) {
-            return res.status(400).json({ status: 'error', error: 'This listing is missing an on-chain Listing ID. It may be corrupt or legacy.' });
-        }
-
-        // 3. Generate Transaction Data
         if (!MARKETPLACE_ADDRESS || MARKETPLACE_ABI.length === 0) {
-            return res.status(503).json({ status: 'error', error: 'Marketplace contract not configured' });
+            return res.status(503).json({ status: 'error', error: 'Marketplace contract not configured on server' });
         }
 
-        const pricePerDay = BigInt(listing.price); // Assuming price is stored in wei as string
-        const totalPrice = pricePerDay * BigInt(days);
+        // pricePerDay should be stored as wei string in DB; fallback to parse Ether if legacy
+        let pricePerDayWei;
+        try {
+            // First treat it as an ETH decimal string (e.g., "0.0004")
+            pricePerDayWei = ethers.parseEther(String(listing.pricePerDay || listing.price));
+        } catch (e) {
+            // If parseEther fails, it might already be a Wei integer string (e.g., "400000000000000")
+            try {
+                pricePerDayWei = BigInt(String(listing.pricePerDay || listing.price));
+            } catch (err) {
+                return res.status(500).json({ status: 'error', error: 'Listing missing or invalid price information' });
+            }
+        }
 
+        const totalPriceWei = pricePerDayWei * BigInt(Number(days));
+
+        // Encode contract call
         const iface = new ethers.Interface(MARKETPLACE_ABI);
-        const data = iface.encodeFunctionData("rent", [listing.onChainListingId, days]);
+        // Use onChainListingId when calling contract
+        const listingOnChainId = Number(listing.onChainListingId);
+        const data = iface.encodeFunctionData('rent', [listingOnChainId, Number(days)]);
 
-        res.status(200).json({
+        return res.status(200).json({
             status: 'success',
             data: {
                 to: MARKETPLACE_ADDRESS,
-                data: data,
-                value: totalPrice.toString(),
-                chainId: 11155111 // Sepolia, or make dynamic
+                data,
+                value: totalPriceWei.toString(), // hex/string wei accepted by frontend wallet
+                chainId: Number(process.env.CHAIN_ID || 11155111)
+            }
+        });
+    } catch (err: any) {
+        console.error('Rent generation error:', err);
+        return res.status(500).json({ status: 'error', error: err.message || String(err) });
+    }
+};
+
+/**
+ * Record the transaction submission as "pending".
+ * Frontend should call this immediately after sending the tx (fast path).
+ * The ChainListener will reconcile and finalize when the event is confirmed on-chain.
+ *
+ * Required header: Idempotency-Key
+ */
+export const notifyRentalTx = async (req: Request, res: Response) => {
+    try {
+        const idempotencyKey = req.headers['idempotency-key'];
+        if (!idempotencyKey) {
+            return res.status(400).json({ status: 'error', error: 'Idempotency-Key header is required' });
+        }
+
+        const { onChainListingId, listingId, nftId, txHash, value } = req.body;
+        const renterWallet = (req as any).user?.id;
+        if (!renterWallet) return res.status(401).json({ status: 'error', error: 'Not authenticated' });
+
+        if (!txHash) return res.status(400).json({ status: 'error', error: 'txHash is required' });
+
+        // Resolve listing (prefer onChainListingId)
+        let listing = null;
+        if (onChainListingId !== undefined && onChainListingId !== null) {
+            listing = await ListingModel.findOne({ onChainListingId: Number(onChainListingId) });
+        }
+        if (!listing && listingId) {
+            listing = await ListingModel.findOne({ id: listingId });
+        }
+        if (!listing && nftId) {
+            const nft = await NFTModel.findOne({ id: nftId });
+            if (nft) {
+                listing = await ListingModel.findOne({ tokenAddress: nft.tokenAddress, tokenId: nft.tokenId, status: { $in: ['active', 'confirmed'] } });
+            }
+        }
+
+        if (!listing) {
+            // still create a pending record keyed by txHash — chainListener can match later
+            const pending = await RentalModel.findOneAndUpdate(
+                { txHash },
+                {
+                    $setOnInsert: {
+                        onChainListingId: onChainListingId ?? null,
+                        tokenAddress: listing?.tokenAddress ?? null,
+                        tokenId: listing?.tokenId ?? null,
+                        renterWallet: renterWallet.toLowerCase(),
+                        ownerWallet: listing?.seller ?? null,
+                        totalPrice: value ? String(value) : listing?.pricePerDay ?? listing?.price ?? '0',
+                        status: 'pending',
+                        txHash,
+                        logIndex: -1,
+                        createdAt: new Date(),
+                        updatedAt: new Date()
+                    }
+                },
+                { upsert: true, new: true }
+            );
+
+            return res.status(200).json({ status: 'success', data: pending, message: 'Pending rental recorded (listing not found locally). ChainListener will reconcile.' });
+        }
+
+        // If listing exists, create pending rental tied to the listing data
+        const pendingRental = await RentalModel.findOneAndUpdate(
+            { txHash },
+            {
+                $setOnInsert: {
+                    onChainListingId: listing.onChainListingId,
+                    tokenAddress: listing.tokenAddress,
+                    tokenId: listing.tokenId,
+                    renterWallet: renterWallet.toLowerCase(),
+                    ownerWallet: listing.seller ?? listing.sellerId ?? null,
+                    totalPrice: value ? String(value) : listing.pricePerDay ?? listing.price ?? '0',
+                    status: 'pending',
+                    txHash,
+                    logIndex: -1,
+                    createdAt: new Date(),
+                    updatedAt: new Date()
+                }
             },
-            message: 'Transaction generated'
-        });
+            { upsert: true, new: true }
+        );
 
-    } catch (error: any) {
-        console.error("Rent Error:", error);
-        res.status(500).json({ status: 'error', error: error.message });
-    }
-};
-
-/**
- * Get all rentals
- */
-export const getAllRentals = async (req: Request, res: Response) => {
-    try {
-        const { status, userId } = req.query;
-
-        const filter: any = {};
-
-        // Filter by status
-        if (status) {
-            filter.status = status;
+        // Mark NFT as pending/rental-intent in DB (UI helps reflect this)
+        try {
+            await NFTModel.updateOne(
+                { tokenAddress: listing.tokenAddress, tokenId: listing.tokenId },
+                { $set: { status: 'pending', isEscrowed: true } }
+            );
+        } catch (e) {
+            console.warn('Failed to mark NFT pending locally:', e);
         }
 
-        // Filter by user (renter or owner)
-        if (userId) {
-            filter.$or = [
-                { renterId: userId },
-                { ownerId: userId }
-            ];
-        }
-
-        const rentals = await RentalModel.find(filter);
-
-        res.status(200).json({
-            status: 'success',
-            data: rentals,
-            message: `Found ${rentals.length} rentals`
-        });
-    } catch (error: any) {
-        res.status(500).json({
-            status: 'error',
-            error: error.message
-        });
-    }
-};
-
-/**
- * Get rental by ID
- */
-export const getRentalById = async (req: Request, res: Response) => {
-    try {
-        const { id } = req.params;
-        const rental = await RentalModel.findOne({ id: id });
-
-        if (!rental) {
-            return res.status(404).json({
-                status: 'error',
-                error: 'Rental not found'
-            });
-        }
-
-        res.status(200).json({
-            status: 'success',
-            data: rental
-        });
-    } catch (error: any) {
-        res.status(500).json({
-            status: 'error',
-            error: error.message
-        });
-    }
-};
-
-/**
- * Create a new rental listing
- */
-export const createRental = async (req: Request, res: Response) => {
-    try {
-        const { nftId, ownerId, rentalPrice, duration } = req.body;
-
-        // Validate required fields
-        if (!nftId || !ownerId || !rentalPrice || !duration) {
-            return res.status(400).json({
-                status: 'error',
-                error: 'Missing required fields: nftId, ownerId, rentalPrice, duration'
-            });
-        }
-
-        // Verify NFT exists and is owned by ownerId
-        const nft = await NFTModel.findOne({ id: nftId });
-        if (!nft) {
-            return res.status(404).json({ status: 'error', error: 'NFT not found' });
-        }
-        if (nft.owner !== ownerId) {
-            return res.status(403).json({ status: 'error', error: 'You do not own this NFT' });
-        }
-
-        const newRental = await RentalModel.create({
-            id: Date.now().toString(),
-            nftId,
-            renterId: '', // Will be set when someone rents it
-            ownerId,
-            rentalPrice,
-            currency: 'ETH',
-            startDate: new Date(),
-            endDate: new Date(Date.now() + duration * 24 * 60 * 60 * 1000), // duration in days
-            status: 'active',
-            createdAt: new Date()
-        });
-
-        // Update NFT status? Or keep it 'available' until actually rented?
-        // Assuming creating a "Rental Listing" implies it's available for rent.
-        // If we want to prevent it from being sold while listed for rent, we should change status.
-        // For now, let's leave NFT status as is or 'listing' (if we had that enum).
-        // Since enum is 'available', 'rented', 'listing' (sale).
-        // Let's assume it stays 'available' effectively, or maybe add 'renting_listed'.
-        // Sticking to minimal changes for now.
-
-        res.status(201).json({
-            status: 'success',
-            data: newRental,
-            message: 'Rental listing created successfully'
-        });
-    } catch (error: any) {
-        res.status(500).json({
-            status: 'error',
-            error: error.message
-        });
-    }
-};
-
-/**
- * Rent an NFT
- */
-export const rentNFT = async (req: Request, res: Response) => {
-    try {
-        const { id } = req.params;
-        const { renterId, duration } = req.body;
-
-        const rental = await RentalModel.findOne({ id: id });
-
-        if (!rental) {
-            return res.status(404).json({
-                status: 'error',
-                error: 'Rental not found'
-            });
-        }
-
-        if (rental.status !== 'active' || (rental.renterId && rental.renterId !== '')) {
-            return res.status(400).json({
-                status: 'error',
-                error: 'NFT is not available for rent'
-            });
-        }
-
-        // Update rental with renter info
-        rental.renterId = renterId;
-        rental.startDate = new Date();
-        rental.endDate = new Date(Date.now() + (duration || 7) * 24 * 60 * 60 * 1000);
-        rental.transactionHash = `0x${Math.random().toString(16).substr(2, 40)}`;
-        // rental.status remains 'active' until completed? Or 'rented'? 
-        // Types say 'active' | 'completed' | 'cancelled'. So 'active' matches.
-
-        await rental.save();
-
-        // Update NFT status to 'rented'
-        await NFTModel.findOneAndUpdate({ id: rental.nftId }, { status: 'rented' });
-
-        res.status(200).json({
-            status: 'success',
-            data: rental,
-            message: 'NFT rented successfully'
-        });
-    } catch (error: any) {
-        res.status(500).json({
-            status: 'error',
-            error: error.message
-        });
-    }
-};
-
-/**
- * Return a rented NFT
- */
-export const returnNFT = async (req: Request, res: Response) => {
-    try {
-        const { id } = req.params;
-        const rental = await RentalModel.findOne({ id: id });
-
-        if (!rental) {
-            return res.status(404).json({
-                status: 'error',
-                error: 'Rental not found'
-            });
-        }
-
-        if (rental.status !== 'active') {
-            return res.status(400).json({
-                status: 'error',
-                error: 'Rental is not active'
-            });
-        }
-
-        // Update rental status
-        rental.status = 'completed';
-        rental.endDate = new Date();
-        await rental.save();
-
-        // Update NFT status back to 'available'
-        await NFTModel.findOneAndUpdate({ id: rental.nftId }, { status: 'available' });
-
-        res.status(200).json({
-            status: 'success',
-            data: rental,
-            message: 'NFT returned successfully'
-        });
-    } catch (error: any) {
-        res.status(500).json({
-            status: 'error',
-            error: error.message
-        });
-    }
-};
-
-/**
- * Get active rentals
- */
-export const getActiveRentals = async (req: Request, res: Response) => {
-    try {
-        const { userId } = req.query;
-
-        const filter: any = { status: 'active' };
-
-        // Filter by user if provided
-        if (userId) {
-            filter.$or = [
-                { renterId: userId },
-                { ownerId: userId }
-            ];
-        }
-
-        const activeRentals = await RentalModel.find(filter);
-
-        res.status(200).json({
-            status: 'success',
-            data: activeRentals,
-            message: `Found ${activeRentals.length} active rentals`
-        });
-    } catch (error: any) {
-        res.status(500).json({
-            status: 'error',
-            error: error.message
-        });
-    }
-};
-
-/**
- * Get rental history
- */
-export const getRentalHistory = async (req: Request, res: Response) => {
-    try {
-        const { userId } = req.query;
-
-        const filter: any = {
-            status: { $in: ['completed', 'cancelled'] }
-        };
-
-        // Filter by user if provided
-        if (userId) {
-            filter.$or = [
-                { renterId: userId },
-                { ownerId: userId }
-            ];
-        }
-
-        const history = await RentalModel.find(filter).sort({ createdAt: -1 });
-
-        res.status(200).json({
-            status: 'success',
-            data: history,
-            message: `Found ${history.length} rental records`
-        });
-    } catch (error: any) {
-        res.status(500).json({
-            status: 'error',
-            error: error.message
-        });
+        return res.status(200).json({ status: 'success', data: pendingRental, message: 'Pending rental recorded. Waiting for confirmations.' });
+    } catch (err: any) {
+        console.error('notifyRentalTx error:', err);
+        return res.status(500).json({ status: 'error', error: err.message || String(err) });
     }
 };

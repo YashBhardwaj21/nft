@@ -6,17 +6,7 @@ import "./IERC4907.sol";
 
 /**
  * @title DAOMarketplaceNFT
- * @dev Minimal ERC-721 for the DAO Marketplace demo on Sepolia.
- *
- * Features:
- *   - Anyone can mint (free testnet demo)
- *   - Each token stores its tokenURI (IPFS metadata pointer)
- *   - `creator` mapping records who called mint (for attribution verification)
- *   - Auto-incrementing token IDs
- *
- * The backend chainListener cross-checks:
- *   creator[tokenId] == DB.creator   → prevents attribution fraud
- *   tokenURI(tokenId) == DB.tokenURI → prevents metadata swap
+ * @dev Minimal ERC-721 for the DAO Marketplace demo with Metadata Hash Verification (Option B).
  */
 contract DAOMarketplaceNFT is ERC721URIStorage, IERC4907 {
     uint256 private _nextTokenId;
@@ -30,21 +20,28 @@ contract DAOMarketplaceNFT is ERC721URIStorage, IERC4907 {
 
     /// @notice Records which address called mint for each token
     mapping(uint256 => address) public creator;
+    
+    /// @notice Records the metadata hash provided at mint
+    mapping(uint256 => bytes32) public tokenMetadataHash;
 
-    /// @notice Emitted when a new NFT is minted with its metadata URI
-    event NFTMinted(uint256 indexed tokenId, address indexed creator, string tokenURI);
+    /// @notice Emitted when a new NFT is minted with its metadata URI and Hash
+    event NFTMinted(uint256 indexed tokenId, address indexed creator, string tokenURI, bytes32 metadataHash);
 
     constructor() ERC721("DAO Marketplace NFT", "DAONFT") {
-        _nextTokenId = 1; // Start from 1 (0 is special in many UIs)
+        _nextTokenId = 1; // Start from 1
     }
 
     /**
-     * @notice Mint a new NFT with the given metadata URI.
-     * @param to      Recipient address (usually msg.sender)
-     * @param uri     IPFS metadata URI (ipfs://Qm...)
+     * @notice Mint a new NFT with the given metadata URI and pre-computed hash.
+     * @param to           Recipient address (usually msg.sender)
+     * @param uri          IPFS metadata URI (ipfs://Qm...)
+     * @param metadataHash SHA256 Hash of the metadata/image content for backend verification
      * @return tokenId The ID of the newly minted token
      */
-    function mint(address to, string memory uri) public returns (uint256) {
+    function mint(address to, string memory uri, bytes32 metadataHash) public returns (uint256) {
+        require(metadataHash != bytes32(0), "Metadata hash is required");
+        require(bytes(uri).length > 0, "URI is required");
+
         uint256 tokenId = _nextTokenId;
         _nextTokenId++;
 
@@ -52,8 +49,9 @@ contract DAOMarketplaceNFT is ERC721URIStorage, IERC4907 {
         _setTokenURI(tokenId, uri);
 
         creator[tokenId] = msg.sender;
+        tokenMetadataHash[tokenId] = metadataHash;
 
-        emit NFTMinted(tokenId, msg.sender, uri);
+        emit NFTMinted(tokenId, msg.sender, uri, metadataHash);
 
         return tokenId;
     }
@@ -66,10 +64,6 @@ contract DAOMarketplaceNFT is ERC721URIStorage, IERC4907 {
     }
 
     /// @notice set the user and expires of a NFT
-    /// @dev The zero address indicates there is no user
-    /// @param tokenId The NFT to get the user address for
-    /// @param user The new user of the NFT
-    /// @param expires Unix timestamp, User expires
     function setUser(uint256 tokenId, address user, uint64 expires) public override {
         require(_isAuthorized(ownerOf(tokenId), msg.sender, tokenId), "ERC721: transfer caller is not owner nor approved");
         UserInfo storage info = _users[tokenId];
@@ -79,9 +73,6 @@ contract DAOMarketplaceNFT is ERC721URIStorage, IERC4907 {
     }
 
     /// @notice Get the user address of an NFT
-    /// @dev The zero address indicates that there is no user or the user is expired
-    /// @param tokenId The NFT to get the user address for
-    /// @return The user address for this NFT
     function userOf(uint256 tokenId) public view override returns (address) {
         if (uint256(_users[tokenId].expires) >= block.timestamp) {
             return _users[tokenId].user;
@@ -90,9 +81,6 @@ contract DAOMarketplaceNFT is ERC721URIStorage, IERC4907 {
     }
 
     /// @notice Get the user expires of an NFT
-    /// @dev The zero value indicates that there is no user
-    /// @param tokenId The NFT to get the user address for
-    /// @return The user expires for this NFT
     function userExpires(uint256 tokenId) public view override returns (uint64) {
         return _users[tokenId].expires;
     }

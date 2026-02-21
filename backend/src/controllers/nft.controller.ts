@@ -113,7 +113,7 @@ export const prepareMint = async (req: Request, res: Response) => {
         // https://gateway.pinata.cloud/ipfs/Qm...
         const imageCID = imageUrl.split('/').pop() || '';
 
-        // 3. Create Metadata
+        // 3. Create Metadata String
         const metadata = {
             name,
             description,
@@ -123,8 +123,17 @@ export const prepareMint = async (req: Request, res: Response) => {
             file_hash: fileHash, // On-chain proof of matching file
             creator: walletAddress
         };
+        const metadataString = JSON.stringify(metadata);
 
-        const metadataUrl = await uploadJSON(metadata, `${name.replace(/\s+/g, '-')}-metadata`);
+        // 3.1 Calculate Metadata Hash exactly as it will be stored and retrieved
+        const metadataHash = '0x' + sha256(metadataString);
+
+        // 3.2 Upload Metadata String as a Buffer to Pinata so it bypasses their JSON formatting
+        const metadataUrl = await uploadFileBuffer(
+            Buffer.from(metadataString, 'utf-8'),
+            `${name.replace(/\s+/g, '-')}-metadata.json`,
+            'application/json'
+        );
         const metadataCID = metadataUrl.split('/').pop() || '';
 
         // 4. Create Draft Record
@@ -143,6 +152,7 @@ export const prepareMint = async (req: Request, res: Response) => {
             fileHash,
             imageCID,
             metadataCID,
+            metadataHash, // Update the DB field
             tokenURI: metadataUrl,
             mintStatus: 'draft'
         });
@@ -170,6 +180,11 @@ export const prepareMint = async (req: Request, res: Response) => {
  */
 export const confirmMint = async (req: Request, res: Response) => {
     try {
+        const idempotencyKey = req.headers['idempotency-key'];
+        if (!idempotencyKey) {
+            return res.status(400).json({ status: 'error', error: 'Idempotency-Key header is required' });
+        }
+
         const { draftId, txHash } = req.body;
 
         if (!draftId || !txHash) {
@@ -178,6 +193,10 @@ export const confirmMint = async (req: Request, res: Response) => {
 
         const nft = await NFTModel.findOne({ id: draftId });
         if (!nft) {
+            const existingNFTByTx = await NFTModel.findOne({ mintTxHash: txHash });
+            if (existingNFTByTx) {
+                return res.status(200).json({ status: 'success', message: 'Mint already marked as pending' });
+            }
             return res.status(404).json({ error: 'Draft NFT not found' });
         }
 

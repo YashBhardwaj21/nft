@@ -336,7 +336,6 @@ const MyNFTs = () => {
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-8 gap-4">
                 <TabsList className="bg-[#12141f] border border-white/5 p-1 h-16 rounded-[1.25rem] w-full flex items-center gap-1 shadow-lg shadow-black/20">
                   {['Collection', 'Renting', 'Listings', 'History'].map((tab) => {
-                    const value = tab.toLowerCase().split(' ')[0]; // simple mapping
                     const mapValue = tab === 'Collection' ? 'owned' : tab === 'Renting' ? 'rented' : tab === 'Listings' ? 'listings' : 'history';
 
                     // Color Map
@@ -453,8 +452,8 @@ const MyNFTs = () => {
                           {activeListings.map((listing: any) => (
                             <NFTCard
                               key={listing.id}
-                              nft={{ ...listing.nft, id: listing.id, collectionName: listing.nft.collectionName || listing.nft.collection, price: listing.price, rentalPrice: listing.rentalPrice }}
-                              status="listing"
+                              nft={{ ...listing.nft, id: listing.nft.id || listing.nftId, collectionName: listing.nft?.collectionName || listing.nft?.collection, price: listing.price, rentalPrice: listing.rentalPrice }}
+                              status={listing.confirmed === false ? 'published_pending' : 'listing'}
                               isOwner={true}
                               onAction={handleAction}
                             />

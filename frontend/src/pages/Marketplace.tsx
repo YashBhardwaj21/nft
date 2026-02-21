@@ -15,8 +15,15 @@ import { Badge } from "@/components/ui/badge";
 import api from "../api/client";
 import { NFT } from "../types";
 import { toast } from "sonner";
+import RentConfirmModal from "../components/rentals/RentConfirmModal";
+
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 
 const Marketplace = () => {
+  const { isAuthenticated } = useAuth();
+  const navigate = useNavigate();
+
   const [trendingNfts, setTrendingNfts] = useState<NFT[]>([]);
   const [newArrivals, setNewArrivals] = useState<NFT[]>([]);
   const [allNfts, setAllNfts] = useState<NFT[]>([]);
@@ -88,8 +95,33 @@ const Marketplace = () => {
       collectionName: item.nft.collectionName || item.nft.collection, // Fallback for legacy
       price: item.price,
       rentalPrice: item.rentalPrice || item.nft.rentalPrice,
-      status: item.status === 'sold' ? 'rented' : 'available'
+      status: item.confirmed === false ? 'published_pending' : (item.status === 'sold' ? 'rented' : 'available'),
+      confirmed: item.confirmed
     }));
+  };
+
+  const [isRentModalOpen, setIsRentModalOpen] = useState(false);
+  const [selectedNft, setSelectedNft] = useState<NFT | null>(null);
+
+  const handleRentAction = (action: string, id: string) => {
+    if (action === "rent") {
+      if (!isAuthenticated) {
+        toast.info("Please connect your wallet to rent this NFT");
+        navigate("/my-nfts");
+        return;
+      }
+
+      const nftToRent = allNfts.find(n => n.id === id) ||
+        trendingNfts.find(n => n.id === id) ||
+        newArrivals.find(n => n.id === id);
+
+      if (nftToRent) {
+        setSelectedNft(nftToRent);
+        setIsRentModalOpen(true);
+      } else {
+        toast.error("NFT details not found.");
+      }
+    }
   };
 
   return (
@@ -164,7 +196,7 @@ const Marketplace = () => {
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
               {trendingNfts.map(nft => (
-                <NFTCard key={nft.id} nft={nft} status={nft.status === 'rented' ? 'rented' : 'listing'} />
+                <NFTCard key={nft.id} nft={nft} status={nft.status === 'rented' ? 'rented' : (nft.status === 'published_pending' ? 'published_pending' : 'listing')} onAction={handleRentAction} />
               ))}
               {!isLoading && trendingNfts.length === 0 && (
                 <div className="col-span-full py-12 text-center bg-zinc-900/50 rounded-2xl border border-white/5">
@@ -192,7 +224,7 @@ const Marketplace = () => {
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
               {newArrivals.map(nft => (
-                <NFTCard key={nft.id} nft={nft} status={nft.status === 'rented' ? 'rented' : 'listing'} />
+                <NFTCard key={nft.id} nft={nft} status={nft.status === 'rented' ? 'rented' : (nft.status === 'published_pending' ? 'published_pending' : 'listing')} onAction={handleRentAction} />
               ))}
               {isLoading && newArrivals.length === 0 && <p className="text-gray-500 col-span-full opacity-50 pl-4">Loading new arrivals...</p>}
             </div>
@@ -259,8 +291,8 @@ const Marketplace = () => {
                 <NFTCard
                   key={nft.id}
                   nft={nft}
-                  status={nft.status === 'rented' ? 'rented' : 'listing'}
-                  onAction={(action, id) => console.log(action, id)}
+                  status={nft.status === 'rented' ? 'rented' : (nft.status === 'published_pending' ? 'published_pending' : 'listing')}
+                  onAction={handleRentAction}
                 />
               ))
             ) : (
@@ -283,6 +315,15 @@ const Marketplace = () => {
         </section>
       </div>
 
+      <RentConfirmModal
+        isOpen={isRentModalOpen}
+        onClose={() => {
+          setIsRentModalOpen(false);
+          setSelectedNft(null);
+        }}
+        nft={selectedNft}
+        onSuccess={fetchAllSections}
+      />
     </div>
   );
 };

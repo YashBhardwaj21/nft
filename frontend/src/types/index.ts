@@ -7,9 +7,13 @@ export interface NFT {
     rentalPrice: number;
     currency: string;
     collection: string;
+    collectionName?: string;
     creator: string;
     owner?: string;
-    status: 'available' | 'rented' | 'listing';
+    tokenId?: string;
+    tokenAddress?: string;
+    contractAddress?: string;
+    status: 'available' | 'rented' | 'listing' | 'listed';
     isEscrowed?: boolean;
     maxDuration?: number;
     renterWallet?: string;
@@ -18,6 +22,9 @@ export interface NFT {
     views?: number;
     timeLeft?: string;
     rentalEndDate?: Date;
+    mintStatus?: 'draft' | 'pending' | 'confirmed' | 'failed';
+    metadataHash?: string;
+    mintTxHash?: string;
 }
 
 export interface User {
@@ -37,13 +44,18 @@ export interface ApiResponse<T> {
 
 export interface Listing {
     id: string;
+    nftId?: string;
     nft: NFT;
+    tokenAddress?: string;
+    tokenId?: string;
+    onChainListingId?: number;
     price: number;
     rentalPrice: number;
     duration: number;
     seller: string; // sellerId or seller object
     createdAt: Date;
-    status: 'active' | 'sold' | 'cancelled';
+    metadataHash?: string;
+    status: 'draft' | 'pending' | 'confirmed' | 'cancelled' | 'failed';
 }
 
 export interface RentalHistoryItem {

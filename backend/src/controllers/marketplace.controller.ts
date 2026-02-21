@@ -1,14 +1,17 @@
+// backend/src/controllers/marketplace.controller.ts
 import { Request, Response } from 'express';
-import { ApiResponse } from '../types/index.js';
 import { ListingModel } from '../models/Listing.js';
 import { NFTModel } from '../models/NFT.js';
+import crypto from 'crypto';
+import { ApiResponse } from '../types/index.js';
 
 /**
- * Get all marketplace listings
+ * Get all marketplace listings (confirmed by default)
+ * Enrich each listing with NFT data using tokenAddress + tokenId lookup.
  */
 export const getAllListings = async (req: Request, res: Response) => {
     try {
-        const { page = 1, limit = 20, status = 'active' } = req.query;
+        const { page = 1, limit = 20, status = 'confirmed' } = req.query as any;
 
         const filter: any = {};
         if (status) filter.status = status;
@@ -16,19 +19,31 @@ export const getAllListings = async (req: Request, res: Response) => {
         const total = await ListingModel.countDocuments(filter);
 
         const listings = await ListingModel.find(filter)
+            .sort({ createdAt: -1 })
             .skip((Number(page) - 1) * Number(limit))
             .limit(Number(limit));
 
-        // Enrich with NFT data
+        // Enrich with NFT data (lookup by tokenAddress + tokenId; fall back to legacy nftId if present)
         const enrichedListings = await Promise.all(listings.map(async (listing) => {
-            const nft = await NFTModel.findOne({ id: listing.nftId });
+            let nft = null;
+            if (listing.tokenAddress && listing.tokenId) {
+                nft = await NFTModel.findOne({
+                    tokenAddress: listing.tokenAddress.toLowerCase(),
+                    tokenId: listing.tokenId.toString()
+                });
+            }
+            // legacy fallback: some listings might still have nftId
+            if (!nft && listing.nftId) {
+                nft = await NFTModel.findOne({ id: listing.nftId });
+            }
+
             return {
                 ...listing.toObject(),
                 nft
             };
         }));
 
-        res.status(200).json({
+        const response: ApiResponse = {
             status: 'success',
             data: enrichedListings,
             pagination: {
@@ -37,72 +52,87 @@ export const getAllListings = async (req: Request, res: Response) => {
                 total: total,
                 totalPages: Math.ceil(total / Number(limit))
             }
-        });
+        };
+
+        res.status(200).json(response);
     } catch (error: any) {
-        res.status(500).json({
-            status: 'error',
-            error: error.message
-        });
+        console.error("getAllListings error:", error);
+        res.status(500).json({ status: 'error', error: error.message });
     }
 };
 
 /**
- * Search marketplace listings
+ * Search marketplace listings using tokenAddress+tokenId -> nft lookup
+ * Supports query, minPrice, maxPrice and sort.
  */
 export const searchListings = async (req: Request, res: Response) => {
     try {
-        const { query, category, minPrice, maxPrice, sortBy = 'trending' } = req.query;
+        const { query, category, minPrice, maxPrice, sortBy = 'trending' } = req.query as any;
 
-        // Start with basic listing filters (price, status)
-        const matchStage: any = { status: 'active' };
-
-        // Price filter on listing itself
-        if (minPrice || maxPrice) {
-            matchStage.price = {};
-            if (minPrice) matchStage.price.$gte = minPrice; // Note: String comparison limitation
-            if (maxPrice) matchStage.price.$lte = maxPrice;
-        }
-
-        // Aggregation to join NFT data and filter/sort
+        // Start with confirmed listings by default
         const pipeline: any[] = [
-            { $match: matchStage },
-            // Lookup based on custom 'id' field vs 'nftId'
+            { $match: { status: 'confirmed' } },
+            // Convert price string to number for numeric comparisons and scoring
+            {
+                $addFields: {
+                    priceNum: { $toDouble: { $ifNull: ['$price', '0'] } }
+                }
+            },
+            // Lookup NFT by tokenAddress + tokenId
             {
                 $lookup: {
                     from: 'nfts',
-                    localField: 'nftId',
-                    foreignField: 'id',
+                    let: { tokenAddress: '$tokenAddress', tokenId: '$tokenId' },
+                    pipeline: [
+                        {
+                            $match: {
+                                $expr: {
+                                    $and: [
+                                        { $eq: [{ $toLower: '$tokenAddress' }, { $toLower: '$$tokenAddress' }] },
+                                        { $eq: ['$tokenId', '$$tokenId'] }
+                                    ]
+                                }
+                            }
+                        }
+                    ],
                     as: 'nft'
                 }
             },
-            { $unwind: '$nft' } // Only keep listings with valid NFTs
+            { $unwind: { path: '$nft', preserveNullAndEmptyArrays: false } }
         ];
 
-        // Search query filter (requires NFT data)
+        // Text search across nft.name / nft.collectionName if provided
         if (query) {
-            const searchRegex = new RegExp(query as string, 'i');
+            const regex = new RegExp(String(query), 'i');
             pipeline.push({
                 $match: {
                     $or: [
-                        { 'nft.name': searchRegex },
-                        { 'nft.collectionName': searchRegex }
+                        { 'nft.name': regex },
+                        { 'nft.collectionName': regex },
+                        { 'nft.description': regex }
                     ]
                 }
             });
         }
 
-        // Sort
+        // Price range filtering (uses numeric priceNum)
+        if (minPrice !== undefined || maxPrice !== undefined) {
+            const priceMatch: any = {};
+            if (minPrice !== undefined) priceMatch.$gte = Number(minPrice);
+            if (maxPrice !== undefined) priceMatch.$lte = Number(maxPrice);
+            pipeline.push({ $match: { priceNum: priceMatch } });
+        }
+
+        // Sorting
         let sortStage: any = {};
-        if (sortBy === 'price_asc') sortStage.price = 1;
-        else if (sortBy === 'price_desc') sortStage.price = -1;
+        if (sortBy === 'price_asc') sortStage.priceNum = 1;
+        else if (sortBy === 'price_desc') sortStage.priceNum = -1;
         else if (sortBy === 'trending') sortStage.views = -1;
         else sortStage.createdAt = -1;
 
-        if (Object.keys(sortStage).length > 0) {
-            pipeline.push({ $sort: sortStage });
-        }
+        pipeline.push({ $sort: sortStage });
 
-        const results = await ListingModel.aggregate(pipeline);
+        const results = await ListingModel.aggregate(pipeline).allowDiskUse(true);
 
         res.status(200).json({
             status: 'success',
@@ -110,26 +140,24 @@ export const searchListings = async (req: Request, res: Response) => {
             message: `Found ${results.length} listings`
         });
     } catch (error: any) {
-        res.status(500).json({
-            status: 'error',
-            error: error.message
-        });
+        console.error("searchListings error:", error);
+        res.status(500).json({ status: 'error', error: error.message });
     }
 };
 
 /**
- * Get trending NFTs
+ * Get trending NFTs (uses tokenAddress+tokenId join)
  */
 export const getTrendingNFTs = async (req: Request, res: Response) => {
     try {
-        const { limit = 10 } = req.query;
+        const { limit = 10 } = req.query as any;
 
-        // Custom scoring for trending (views + likes*2)
-        const trending = await ListingModel.aggregate([
-            { $match: { status: 'active' } },
+        const pipeline = [
+            { $match: { status: 'confirmed' } },
             {
                 $addFields: {
-                    score: { $add: ['$views', { $multiply: ['$likes', 2] }] }
+                    score: { $add: [{ $ifNull: ['$views', 0] }, { $multiply: [{ $ifNull: ['$likes', 0] }, 2] }] },
+                    priceNum: { $toDouble: { $ifNull: ['$price', '0'] } }
                 }
             },
             { $sort: { score: -1 } },
@@ -137,29 +165,34 @@ export const getTrendingNFTs = async (req: Request, res: Response) => {
             {
                 $lookup: {
                     from: 'nfts',
-                    localField: 'nftId',
-                    foreignField: 'id',
+                    let: { tokenAddress: '$tokenAddress', tokenId: '$tokenId' },
+                    pipeline: [
+                        {
+                            $match: {
+                                $expr: {
+                                    $and: [
+                                        { $eq: [{ $toLower: '$tokenAddress' }, { $toLower: '$$tokenAddress' }] },
+                                        { $eq: ['$tokenId', '$$tokenId'] }
+                                    ]
+                                }
+                            }
+                        }
+                    ],
                     as: 'nft'
                 }
             },
-            { $unwind: '$nft' }
-        ]);
+            { $unwind: { path: '$nft', preserveNullAndEmptyArrays: false } }
+        ];
 
-        res.status(200).json({
-            status: 'success',
-            data: trending
-        });
+        const trending = await ListingModel.aggregate(pipeline).allowDiskUse(true);
+
+        res.status(200).json({ status: 'success', data: trending });
     } catch (error: any) {
-        res.status(500).json({
-            status: 'error',
-            error: error.message
-        });
+        console.error("getTrendingNFTs error:", error);
+        res.status(500).json({ status: 'error', error: error.message });
     }
 };
 
-/**
- * Get marketplace statistics
- */
 export const getMarketplaceStats = async (req: Request, res: Response) => {
     try {
         const stats = await ListingModel.aggregate([
@@ -168,205 +201,205 @@ export const getMarketplaceStats = async (req: Request, res: Response) => {
                     _id: null,
                     totalListings: { $sum: 1 },
                     activeListings: {
-                        $sum: { $cond: [{ $eq: ['$status', 'active'] }, 1, 0] }
+                        $sum: { $cond: [{ $eq: ['$status', 'confirmed'] }, 1, 0] }
                     },
-                    totalViews: { $sum: '$views' },
-                    totalLikes: { $sum: '$likes' }
-                    // Note: Summing price strings requires casting, omitted for prototype safety
+                    totalViews: { $sum: { $ifNull: ['$views', 0] } },
+                    totalLikes: { $sum: { $ifNull: ['$likes', 0] } }
                 }
             }
         ]);
 
         const result = stats[0] || { totalListings: 0, activeListings: 0, totalViews: 0, totalLikes: 0 };
 
-        res.status(200).json({
-            status: 'success',
-            data: { ...result, currency: 'ETH' }
-        });
+        res.status(200).json({ status: 'success', data: { ...result, currency: 'ETH' } });
     } catch (error: any) {
-        res.status(500).json({
-            status: 'error',
-            error: error.message
-        });
-    }
-};
-
-/**
- * Create a new listing
- */
-export const createListing = async (req: Request, res: Response) => {
-    try {
-        const newListing = await ListingModel.create({
-            id: Date.now().toString(),
-            ...req.body,
-            status: 'active',
-            views: 0,
-            likes: 0,
-            createdAt: new Date()
-        });
-
-        // Also update NFT status?
-        // await NFTModel.updateOne({ id: req.body.nftId }, { status: 'listed' });
-
-        res.status(201).json({
-            status: 'success',
-            data: newListing,
-            message: 'Listing created successfully'
-        });
-    } catch (error: any) {
-        res.status(500).json({
-            status: 'error',
-            error: error.message
-        });
-    }
-};
-
-/**
- * Cancel (delist) a listing
- * - Verifies caller is the seller
- * - Sets listing status to 'cancelled' (soft delete)
- * - Resets NFT status back to 'available'
- */
-export const cancelListing = async (req: Request, res: Response) => {
-    try {
-        const { id } = req.params;
-        const userId = (req as any).user.id;
-
-        // 1. Find the listing
-        const listing = await ListingModel.findOne({ id });
-        if (!listing) {
-            return res.status(404).json({ status: 'error', error: 'Listing not found' });
-        }
-
-        // 2. Verify ownership — only the seller can remove their listing
-        if (listing.sellerId !== userId) {
-            return res.status(403).json({ status: 'error', error: 'Not authorised. You did not create this listing.' });
-        }
-
-        // 3. Only active listings can be cancelled
-        if (listing.status !== 'active') {
-            return res.status(400).json({ status: 'error', error: `Cannot cancel a listing with status '${listing.status}'.` });
-        }
-
-        // 4. Soft-delete: mark as cancelled
-        listing.status = 'cancelled';
-        await listing.save();
-
-        // 5. Reset the NFT back to 'available'
-        await NFTModel.findOneAndUpdate(
-            { id: listing.nftId },
-            { status: 'available', isEscrowed: false }
-        );
-
-        res.status(200).json({
-            status: 'success',
-            message: 'Listing removed successfully. NFT is now available.'
-        });
-
-    } catch (error: any) {
-        console.error('Cancel listing error:', error);
+        console.error("getMarketplaceStats error:", error);
         res.status(500).json({ status: 'error', error: error.message });
     }
 };
 
 /**
- * Delete a listing (legacy hard-delete – kept for admin use)
+ * Create a Listing Draft
+ * Accepts either:
+ *  - nftId (legacy) OR
+ *  - tokenAddress + tokenId
+ *
+ * Stores canonical tokenAddress + tokenId on the Listing doc.
+ * Creates a metadata JSON and pins as a file buffer (uploadFileBuffer).
  */
-export const deleteListing = async (req: Request, res: Response) => {
+export const createListingDraft = async (req: Request, res: Response) => {
     try {
-        const { id } = req.params;
-        const deletedListing = await ListingModel.findOneAndDelete({ id: id });
-
-        if (!deletedListing) {
-            return res.status(404).json({
-                status: 'error',
-                error: 'Listing not found'
-            });
-        }
-
-        res.status(200).json({
-            status: 'success',
-            data: deletedListing,
-            message: 'Listing deleted successfully'
-        });
-    } catch (error: any) {
-        res.status(500).json({
-            status: 'error',
-            error: error.message
-        });
-    }
-};
-
-/**
- * List an NFT for rent
- */
-export const listForRent = async (req: Request, res: Response) => {
-    try {
-        const { id } = req.params;
-        const { price, duration, onChainListingId } = req.body;
-        // req.user is added by protect middleware
+        const { nftId, tokenAddress: tokenAddressIn, tokenId: tokenIdIn, price, duration } = req.body;
         const userId = (req as any).user.id;
 
-        if (price === undefined || price === null || isNaN(Number(price))) {
-            return res.status(400).json({ status: 'error', error: 'Valid price is required' });
-        }
-        if (duration === undefined || duration === null || isNaN(Number(duration))) {
-            return res.status(400).json({ status: 'error', error: 'Valid duration is required' });
-        }
-        if (onChainListingId === undefined || onChainListingId === null) {
-            return res.status(400).json({ status: 'error', error: 'onChainListingId is required to verify the smart contract listing.' });
+        if ((!nftId && (!tokenAddressIn || tokenIdIn === undefined)) || price === undefined || duration === undefined) {
+            return res.status(400).json({ status: 'error', error: 'Missing required fields. Provide nftId or tokenAddress+tokenId, price and duration.' });
         }
 
-        // 1. Find NFT
-        const nft = await NFTModel.findOne({ id });
+        // Resolve NFT by either nftId or tokenAddress+tokenId
+        let nft = null;
+        if (nftId) {
+            nft = await NFTModel.findOne({ id: nftId });
+        }
+        if (!nft && tokenAddressIn && tokenIdIn !== undefined) {
+            nft = await NFTModel.findOne({ tokenAddress: tokenAddressIn.toLowerCase(), tokenId: tokenIdIn.toString() });
+        }
         if (!nft) {
             return res.status(404).json({ status: 'error', error: 'NFT not found' });
         }
 
-        // 2. Check Ownership
-        if (nft.owner !== userId) {
+        if (nft.owner.toLowerCase() !== userId.toLowerCase()) {
             return res.status(403).json({ status: 'error', error: 'Not authorized. You do not own this NFT.' });
         }
 
-        // 3. Check if already rented
         if (nft.status === 'rented' || nft.isEscrowed) {
             return res.status(400).json({ status: 'error', error: 'NFT is currently rented or in escrow.' });
         }
 
-        // 4. Create Listing (Type 'rent')
-        // Remove any existing active listings for this NFT to avoid duplicates
-        await ListingModel.deleteMany({ nftId: id, status: 'active' });
+        // Create metadata for listing
+        const metadata = {
+            nftId: nft.id || null,
+            tokenAddress: nft.tokenAddress,
+            tokenId: nft.tokenId,
+            sellerId: userId.toLowerCase(),
+            price: price.toString(),
+            duration: Number(duration),
+            timestamp: Date.now()
+        };
+        const metadataString = JSON.stringify(metadata);
+
+        // deterministic sha256
+        const metadataHash = crypto.createHash('sha256').update(metadataString).digest('hex');
+
+        // Upload as file buffer to IPFS (Pinata service)
+        const { uploadFileBuffer } = await import('../services/ipfs.service.js');
+        const metadataUrl = await uploadFileBuffer(Buffer.from(metadataString, 'utf-8'), `listing-${nft.id || `${nft.tokenAddress}-${nft.tokenId}`}-${Date.now()}.json`, 'application/json');
+
+        const draftId = `draft_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
 
         const newListing = await ListingModel.create({
-            id: Date.now().toString(),
-            nftId: id,
-            onChainListingId: Number(onChainListingId),
-            sellerId: userId,
+            id: draftId,
+            // canonical fields for protocol
+            tokenAddress: nft.tokenAddress,
+            tokenId: nft.tokenId,
+            seller: userId.toLowerCase(),
+            pricePerDay: price.toString(),
+            // legacy field retained for compatibility
+            nftId: nft.id || null,
+            sellerId: userId.toLowerCase(),
             price: price.toString(),
             rentalPrice: price.toString(),
             currency: 'ETH',
             duration: Number(duration),
+            minDuration: 1,
+            maxDuration: Number(duration),
+            metadataHash: `0x${metadataHash}`,
+            tokenURI: metadataUrl,
             type: 'rent',
-            status: 'active',
+            status: 'draft',
             createdAt: new Date()
         });
 
-        // 5. Update NFT
-        nft.status = 'listing';
-        nft.rentalPrice = Number(price);
-        nft.maxDuration = Number(duration);
-        nft.isEscrowed = false; // Not escrowed yet, just listed
-        if (!nft.collectionName) nft.collectionName = 'DAO Collection'; // Patch for old data missing collectionName
-        await nft.save();
-
         res.status(201).json({
             status: 'success',
-            data: newListing,
-            message: 'NFT listed for rent successfully'
+            data: { draftId: newListing.id, metadataHash: newListing.metadataHash, tokenURI: newListing.tokenURI },
+            message: 'Listing draft created successfully'
         });
-
     } catch (error: any) {
-        console.error("List for rent error:", error);
+        console.error("createListingDraft error:", error);
+        res.status(500).json({ status: 'error', error: error.message });
+    }
+};
+
+/**
+ * Notify backend that the listing transaction has been submitted (frontend should call immediately after sending tx)
+ * This marks the draft as pending and records txHash. ChainListener will confirm and set onChainListingId.
+ */
+export const notifyListingTx = async (req: Request, res: Response) => {
+    try {
+        const idempotencyKey = req.headers['idempotency-key'] as string | undefined;
+        if (!idempotencyKey) {
+            return res.status(400).json({ status: 'error', error: 'Idempotency-Key header is required' });
+        }
+
+        const { draftId, txHash } = req.body;
+        const userId = (req as any).user.id;
+
+        if (!draftId || !txHash) {
+            return res.status(400).json({ status: 'error', error: 'draftId and txHash are required' });
+        }
+
+        const listing = await ListingModel.findOne({ id: draftId });
+        if (!listing) {
+            // Idempotent behavior: if we already have a listing with this txHash, return it
+            const existingListingByTx = await ListingModel.findOne({ txHash });
+            if (existingListingByTx) {
+                return res.status(200).json({ status: 'success', data: existingListingByTx, message: 'Transaction already recorded.' });
+            }
+            return res.status(404).json({ status: 'error', error: 'Draft not found' });
+        }
+
+        if (listing.sellerId.toLowerCase() !== userId.toLowerCase()) {
+            return res.status(403).json({ status: 'error', error: 'Not authorized.' });
+        }
+
+        if (listing.status !== 'draft') {
+            // If previously marked pending with same txHash, respond ok
+            if (listing.txHash === txHash) {
+                return res.status(200).json({ status: 'success', data: listing, message: 'Transaction already recorded.' });
+            }
+            return res.status(400).json({ status: 'error', error: `Draft is already in status: ${listing.status}` });
+        }
+
+        // Record tx and mark pending (listener will confirm).
+        listing.status = 'pending';
+        listing.txHash = txHash;
+        listing.updatedAt = new Date();
+        await listing.save();
+
+        res.status(200).json({
+            status: 'success',
+            data: listing,
+            message: 'Transaction recorded. Waiting for block confirmations.'
+        });
+    } catch (error: any) {
+        console.error("notifyListingTx error:", error);
+        res.status(500).json({ status: 'error', error: error.message });
+    }
+};
+
+/**
+ * Notify cancel (frontend can call after submitting on-chain cancel tx)
+ * ChainListener will mark cancelled when event is processed.
+ */
+export const notifyCancelListing = async (req: Request, res: Response) => {
+    try {
+        const { onChainListingId, txHash } = req.body;
+        const userId = (req as any).user.id;
+
+        if (!onChainListingId || !txHash) {
+            return res.status(400).json({ status: 'error', error: 'onChainListingId and txHash are required' });
+        }
+
+        const listing = await ListingModel.findOne({ onChainListingId: Number(onChainListingId) });
+        if (!listing) {
+            return res.status(404).json({ status: 'error', error: 'Listing not found' });
+        }
+
+        if (listing.sellerId.toLowerCase() !== userId.toLowerCase()) {
+            return res.status(403).json({ status: 'error', error: 'Not authorized.' });
+        }
+
+        // We do not perform chain cancellation here — frontend must submit TX.
+        // Record txHash to aid reconciliation; listener will finalize.
+        listing.pendingCancelTx = txHash;
+        listing.status = 'pending_cancel';
+        listing.updatedAt = new Date();
+        await listing.save();
+
+        res.status(200).json({ status: 'success', message: 'Cancellation tx recorded. Waiting for confirmations.' });
+    } catch (error: any) {
+        console.error("notifyCancelListing error:", error);
         res.status(500).json({ status: 'error', error: error.message });
     }
 };
