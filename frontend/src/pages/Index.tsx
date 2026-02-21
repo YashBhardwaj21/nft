@@ -1,48 +1,67 @@
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight, Play, Shield, Zap, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import NFTCard from "@/components/ui/nft-card";
+import { useAuth } from "@/context/AuthContext";
+import api from "@/api/client";
 
 const Index = () => {
-  // Featured NFTs for Hero/Showcase
-  const featuredNFTs = [
-    {
-      id: "1",
-      name: "Ethereal Dreams #001",
-      image: "https://images.unsplash.com/photo-1634193295627-1cdddf751ebf?w=400",
-      price: 3.5,
-      rentalPrice: 0.15,
-      currency: "ETH",
-      collection: "Ethereal Collection",
-      creator: "DigitalArtist",
-      likes: 120,
-      status: "available" as const
-    },
-    {
-      id: "2",
-      name: "Neon Genesis #256",
-      image: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=400",
-      price: 2.8,
-      rentalPrice: 0.12,
-      currency: "ETH",
-      collection: "Genesis Series",
-      creator: "NeonCreator",
-      likes: 85,
-      status: "available" as const
-    },
-    {
-      id: "3",
-      name: "Cosmic Voyage #078",
-      image: "https://images.unsplash.com/photo-1620641788421-7a1c342ea42e?w=400",
-      price: 4.2,
-      rentalPrice: 0.18,
-      currency: "ETH",
-      collection: "Cosmic Collection",
-      creator: "SpaceArt",
-      likes: 210,
-      status: "available" as const
-    }
-  ];
+  const { user } = useAuth();
+  const [stats, setStats] = useState({
+    volumeTraded: 0,
+    totalListings: 0,
+    activeUsers: 0,
+    platformFees: 0
+  });
+  const [userNFTs, setUserNFTs] = useState<any[]>([]);
+  const [loadingNFTs, setLoadingNFTs] = useState(true);
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        const response = await api.get('/marketplace/stats');
+        if (response.data?.status === 'success') {
+          const data = response.data.data;
+          setStats({
+            volumeTraded: data.volumeTraded || 0,
+            totalListings: data.totalListings || 0,
+            activeUsers: data.activeUsers || 0,
+            platformFees: 0
+          });
+        }
+      } catch (error) {
+        console.error("Failed to fetch marketplace stats:", error);
+      }
+    };
+
+    fetchStats();
+  }, []);
+
+  useEffect(() => {
+    const fetchUserNFTs = async () => {
+      const userId = user?.id || user?.walletAddress;
+      if (!userId) {
+        setUserNFTs([]);
+        setLoadingNFTs(false);
+        return;
+      }
+
+      try {
+        setLoadingNFTs(true);
+        const response = await api.get(`/nfts/user/${userId}`);
+        if (response.data?.status === 'success') {
+          setUserNFTs(response.data.data || []);
+        }
+      } catch (error) {
+        console.error("Failed to fetch user NFTs:", error);
+      } finally {
+        setLoadingNFTs(false);
+      }
+    };
+
+    fetchUserNFTs();
+  }, [user]);
 
   return (
     <div className="relative">
@@ -173,19 +192,19 @@ const Index = () => {
         <section className="py-10 mb-20 px-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-8 max-w-6xl mx-auto text-center bg-[#6495ED] rounded-[2.5rem] p-12 shadow-xl">
             <div>
-              <p className="text-4xl font-bold text-black mb-1">$0</p>
+              <p className="text-4xl font-bold text-black mb-1">${stats.volumeTraded}</p>
               <p className="text-sm font-medium text-black/60 uppercase tracking-wider">Volume Traded</p>
             </div>
             <div>
-              <p className="text-4xl font-bold text-black mb-1">0+</p>
+              <p className="text-4xl font-bold text-black mb-1">{stats.totalListings}+</p>
               <p className="text-sm font-medium text-black/60 uppercase tracking-wider">NFTs Listed</p>
             </div>
             <div>
-              <p className="text-4xl font-bold text-black mb-1">0+</p>
+              <p className="text-4xl font-bold text-black mb-1">{stats.activeUsers}+</p>
               <p className="text-sm font-medium text-black/60 uppercase tracking-wider">Active Users</p>
             </div>
             <div>
-              <p className="text-4xl font-bold text-black mb-1">0%</p>
+              <p className="text-4xl font-bold text-black mb-1">{stats.platformFees}%</p>
               <p className="text-sm font-medium text-black/60 uppercase tracking-wider">Platform Fees</p>
             </div>
           </div>
@@ -195,19 +214,29 @@ const Index = () => {
         <section className="mb-24 px-6 md:px-12 max-w-7xl mx-auto">
           <div className="flex items-end justify-between mb-10">
             <div>
-              <h2 className="text-3xl font-bold mb-2 text-white">Trending Rentals</h2>
-              <p className="text-gray-400">Hot assets being rented right now</p>
+              <h2 className="text-3xl font-bold mb-2 text-white">Your Minted NFTs</h2>
+              <p className="text-gray-400">NFTs you have created on the platform</p>
             </div>
-            <Button variant="link" className="text-primary">View All</Button>
+            <Button variant="link" className="text-primary" asChild>
+              <Link to={user ? "/profile" : "/login"}>View All</Link>
+            </Button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {featuredNFTs.map(nft => (
-              <div key={nft.id} className="transform hover:translate-y-[-10px] transition-transform duration-300">
-                <NFTCard nft={nft} status="listing" />
-              </div>
-            ))}
-          </div>
+          {loadingNFTs ? (
+            <div className="text-center text-gray-400 py-10">Loading your NFTs...</div>
+          ) : !user ? (
+            <div className="text-center text-gray-400 py-10">Connect your wallet to see your NFTs here.</div>
+          ) : userNFTs.length === 0 ? (
+            <div className="text-center text-gray-400 py-10">You haven't minted any NFTs yet.</div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+              {userNFTs.slice(0, 3).map(nft => (
+                <div key={nft.id || nft._id} className="transform hover:translate-y-[-10px] transition-transform duration-300">
+                  <NFTCard nft={nft} status={nft.status || "available"} />
+                </div>
+              ))}
+            </div>
+          )}
         </section>
 
         {/* FEATURES GRID */}
