@@ -9,6 +9,7 @@ import fs from 'fs';
 import path from 'path';
 import { getJSON } from './ipfs.service.js';
 import { sha256 } from '../crypto/sha256.js';
+import { getDynamicProvider } from '../utils/provider.js';
 
 // Load ABIs
 const NFT_ABI_PATH = path.join(process.cwd(), '..', 'shared', 'DAOMarketplaceNFT.json');
@@ -41,13 +42,7 @@ export class ChainListener {
         if (this.isRunning) return;
         this.isRunning = true;
 
-        // Prefer WebSocket, fallback to HTTP
-        const rpcUrl = process.env.RPC_URL || process.env.SEPOLIA_RPC || 'https://rpc.sepolia.org';
-        if (rpcUrl.startsWith('ws')) {
-            this.provider = new ethers.WebSocketProvider(rpcUrl);
-        } else {
-            this.provider = new ethers.JsonRpcProvider(rpcUrl);
-        }
+        this.provider = getDynamicProvider();
 
         console.log(`🚀 Starting Chain-First Listener (Confirmations required: ${CONFIRMATIONS_N})...`);
 
@@ -56,9 +51,6 @@ export class ChainListener {
             await this.loadState();
             await this.backfillEvents();
             this.subscribeToEvents();
-
-            // Start the worker loop
-            this.processQueueLoop();
         } catch (error) {
             console.error('❌ Chain Listener initialization failed:', error);
             this.isRunning = false;
@@ -144,10 +136,10 @@ export class ChainListener {
                             logIndex: log.index,
                             txHash: log.transactionHash,
                             data: {
-                                tokenId: log.args[0].toString(),
-                                creator: log.args[1],
-                                tokenURI: log.args[2],
-                                metadataHash: log.args[3]
+                                tokenId: (log as any).args[0].toString(),
+                                creator: (log as any).args[1],
+                                tokenURI: (log as any).args[2],
+                                metadataHash: (log as any).args[3]
                             },
                             processed: false,
                             attempts: 0
@@ -194,12 +186,12 @@ export class ChainListener {
                             logIndex: log.index,
                             txHash: log.transactionHash,
                             data: {
-                                onChainListingId: log.args[0].toString(),
-                                renter: log.args[1],
-                                tokenAddress: log.args[2],
-                                tokenId: log.args[3].toString(),
-                                expires: log.args[4].toString(),
-                                totalPrice: log.args[5].toString()
+                                onChainListingId: (log as any).args[0].toString(),
+                                renter: (log as any).args[1],
+                                tokenAddress: (log as any).args[2],
+                                tokenId: (log as any).args[3].toString(),
+                                expires: (log as any).args[4].toString(),
+                                totalPrice: (log as any).args[5].toString()
                             },
                             processed: false,
                             attempts: 0
@@ -219,9 +211,9 @@ export class ChainListener {
                             logIndex: log.index,
                             txHash: log.transactionHash,
                             data: {
-                                onChainListingId: log.args[0].toString(),
-                                tokenAddress: log.args[1],
-                                tokenId: log.args[2].toString()
+                                onChainListingId: (log as any).args[0].toString(),
+                                tokenAddress: (log as any).args[1],
+                                tokenId: (log as any).args[2].toString()
                             },
                             processed: false,
                             attempts: 0
@@ -316,7 +308,6 @@ export class ChainListener {
                 {
                     $setOnInsert: {
                         blockNumber: ev.blockNumber,
-                        type: ev.type,
                         data: ev.data,
                         status: 'pending',
                         attempts: 0,
@@ -327,274 +318,6 @@ export class ChainListener {
             );
         } catch (err) {
             console.error('Error enqueueing event:', err);
-        }
-    }
-
-    // ==========================================
-    // Worker Loop
-    // ==========================================
-
-    private async processQueueLoop() {
-        while (this.isRunning) {
-            try {
-                const currentBlock = await this.provider.getBlockNumber();
-                const readyEvents = await EventModel.find({
-                    status: 'pending',
-                    blockNumber: { $lte: currentBlock - CONFIRMATIONS_N }
-                }).sort({ blockNumber: 1, logIndex: 1 }).limit(100);
-
-                if (readyEvents.length === 0) {
-                    await new Promise(res => setTimeout(res, 5000));
-                    continue;
-                }
-
-                for (const evDoc of readyEvents) {
-                    await this.processEventIdempotent(evDoc);
-                }
-
-                await new Promise(res => setTimeout(res, 3000));
-            } catch (error) {
-                console.error('Error in queue processing loop:', error);
-                await new Promise(res => setTimeout(res, 5000));
-            }
-        }
-    }
-
-    private async processEventIdempotent(evDoc: any) {
-        try {
-            console.log(`=== Processing [${evDoc.type}] Tx: ${evDoc.txHash} (Block: ${evDoc.blockNumber}) ===`);
-
-            if (evDoc.type === 'Mint') {
-                const { tokenId, creator, tokenURI, metadataHash } = evDoc.data;
-                const tokenAddress = (this.nftContract!.target as string).toLowerCase();
-
-                // Try to find the existing draft by the transaction hash
-                const draftNft = await NFTModel.findOne({ mintTxHash: evDoc.txHash });
-
-                if (draftNft) {
-                    // Update the existing draft with chain data
-                    draftNft.tokenId = tokenId.toString();
-                    draftNft.tokenAddress = tokenAddress;
-                    draftNft.owner = creator.toLowerCase();
-                    draftNft.creator = creator.toLowerCase();
-                    draftNft.tokenURI = tokenURI;
-                    draftNft.mintStatus = 'confirmed';
-                    draftNft.blockNumber = evDoc.blockNumber;
-                    draftNft.updatedAt = new Date();
-                    await draftNft.save();
-                } else {
-                    // Fallback: Create a new canonical record if no draft exists
-                    await NFTModel.updateOne(
-                        { tokenAddress, tokenId: tokenId.toString() },
-                        {
-                            $set: {
-                                owner: creator.toLowerCase(),
-                                creator: creator.toLowerCase(),
-                                tokenURI: tokenURI,
-                                metadataHash: metadataHash,
-                                mintTxHash: evDoc.txHash,
-                                blockNumber: evDoc.blockNumber,
-                                mintStatus: 'confirmed' as const,
-                                updatedAt: new Date()
-                            },
-                            $setOnInsert: {
-                                id: `nft_${tokenId}_${Date.now()}`,
-                                name: `Token #${tokenId}`,
-                                image: '',
-                                price: 0,
-                                fileHash: ''
-                            }
-                        },
-                        { upsert: true }
-                    );
-                }
-
-                // verify metadata if possible
-                this.verifyMetadataAsync(tokenAddress, tokenId.toString(), tokenURI, metadataHash);
-
-            } else if (evDoc.type === 'List') {
-                const { onChainListingId, owner, tokenAddress, tokenId, pricePerDay, minDuration, maxDuration, metadataHash } = evDoc.data;
-                const tokenAddr = tokenAddress.toLowerCase();
-
-                // Try to find an existing draft by txHash. This is the critical linkage.
-                const draftListing = await ListingModel.findOne({ txHash: evDoc.txHash, status: { $in: ['draft', 'pending'] } });
-
-                if (draftListing) {
-                    // Update the existing draft — this prevents duplicate records
-                    draftListing.onChainListingId = Number(onChainListingId);
-                    draftListing.tokenAddress = tokenAddr;
-                    draftListing.tokenId = tokenId.toString();
-                    draftListing.sellerId = owner.toLowerCase();
-                    draftListing.price = ethers.formatEther(pricePerDay);
-                    draftListing.rentalPrice = ethers.formatEther(pricePerDay);
-                    draftListing.minDuration = Number(minDuration);
-                    draftListing.maxDuration = Number(maxDuration);
-                    draftListing.metadataHash = metadataHash;
-                    draftListing.status = 'confirmed';
-                    draftListing.confirmed = true;
-                    draftListing.txHash = evDoc.txHash;
-                    draftListing.blockNumber = evDoc.blockNumber;
-                    draftListing.confirmedAt = new Date();
-                    draftListing.type = 'rent';
-                    await draftListing.save();
-                } else {
-                    // Fallback: No draft found — create a canonical on-chain listing record
-                    await ListingModel.updateOne(
-                        { onChainListingId: Number(onChainListingId), tokenAddress: tokenAddr },
-                        {
-                            $set: {
-                                tokenId: tokenId.toString(),
-                                sellerId: owner.toLowerCase(),
-                                price: ethers.formatEther(pricePerDay),
-                                rentalPrice: ethers.formatEther(pricePerDay),
-                                currency: 'ETH',
-                                minDuration: Number(minDuration),
-                                maxDuration: Number(maxDuration),
-                                metadataHash,
-                                status: 'confirmed' as const,
-                                confirmed: true,
-                                txHash: evDoc.txHash,
-                                blockNumber: evDoc.blockNumber,
-                                confirmedAt: new Date(),
-                                type: 'rent',
-                                source: 'chain'
-                            },
-                            $setOnInsert: {
-                                id: `list_${onChainListingId}_${Date.now()}`
-                            }
-                        },
-                        { upsert: true }
-                    );
-                }
-
-                // Update NFT status to listing / escrowed
-                await NFTModel.updateOne(
-                    { tokenAddress: tokenAddr, tokenId: tokenId.toString() },
-                    { $set: { status: 'listing', isEscrowed: true } }
-                );
-
-                // If the draft had a tokenURI saved, verify metadata hash
-                if (draftListing && draftListing.tokenURI) {
-                    this.verifyMetadataAsync(tokenAddr, tokenId.toString(), draftListing.tokenURI, metadataHash);
-                }
-
-            } else if (evDoc.type === 'Cancel') {
-                const { onChainListingId, tokenAddress, tokenId } = evDoc.data;
-                const tokenAddr = tokenAddress.toLowerCase();
-
-                await ListingModel.updateOne(
-                    { onChainListingId: Number(onChainListingId), tokenAddress: tokenAddr },
-                    { $set: { status: 'cancelled' as const } }
-                );
-
-                await NFTModel.updateOne(
-                    { tokenAddress: tokenAddr, tokenId: tokenId.toString() },
-                    { $set: { status: 'available', isEscrowed: false } }
-                );
-
-            } else if (evDoc.type === 'Rent') {
-                const { onChainListingId, renter, tokenAddress, tokenId, expires } = evDoc.data;
-                const tokenAddr = tokenAddress.toLowerCase();
-                const expiryDate = new Date(Number(expires) * 1000);
-
-                // Update Listing: mark as rented and track current renter
-                await ListingModel.updateOne(
-                    { onChainListingId: Number(onChainListingId), tokenAddress: tokenAddr },
-                    {
-                        $set: {
-                            status: 'rented',
-                            currentRenter: renter.toLowerCase(),
-                            rentedUntil: expiryDate,
-                            lastRentTxHash: evDoc.txHash
-                        }
-                    }
-                );
-
-                // Update NFT to rented state
-                await NFTModel.updateOne(
-                    { tokenAddress: tokenAddr, tokenId: tokenId.toString() },
-                    {
-                        $set: {
-                            status: 'rented',
-                            renterWallet: renter.toLowerCase(),
-                            expiresAt: expiryDate,
-                            rentalEndDate: expiryDate,
-                            isEscrowed: true
-                        }
-                    }
-                );
-
-                // ===== NEW: finalize associated Rental record by txHash =====
-                const rentalUpdate = await RentalModel.findOneAndUpdate(
-                    { txHash: evDoc.txHash },
-                    {
-                        $set: {
-                            status: 'confirmed',
-                            renterWallet: renter.toLowerCase(),
-                            expiresAt: expiryDate,
-                            logIndex: evDoc.logIndex,
-                            startBlock: evDoc.blockNumber,
-                            onChainListingId: Number(onChainListingId)
-                        }
-                    },
-                    { new: true }
-                );
-
-                // If rental record not found, create a minimal record for audit
-                if (!rentalUpdate) {
-                    await RentalModel.create({
-                        onChainListingId: Number(onChainListingId),
-                        tokenAddress: tokenAddr,
-                        tokenId: tokenId.toString(),
-                        txHash: evDoc.txHash,
-                        renterWallet: renter.toLowerCase(),
-                        status: 'confirmed',
-                        expiresAt: expiryDate,
-                        logIndex: evDoc.logIndex,
-                        startBlock: evDoc.blockNumber,
-                        createdAt: new Date(),
-                    });
-                }
-            }
-
-            // Mark as processed
-            evDoc.status = 'processed';
-            await evDoc.save();
-
-            this.saveState(evDoc.blockNumber);
-
-        } catch (error: any) {
-            evDoc.attempts = (evDoc.attempts || 0) + 1;
-            console.error(`Failed to process event ${evDoc.txHash} (Attempt ${evDoc.attempts}):`, error.message || error);
-            if (evDoc.attempts >= 5) {
-                console.error(`☠️ Dead event dropped: ${evDoc.txHash}`);
-                evDoc.status = 'failed';
-                evDoc.error = error.message || String(error);
-            }
-            await evDoc.save();
-        }
-    }
-
-    private async verifyMetadataAsync(tokenAddress: string, tokenId: string, tokenURI: string, providedHash: string) {
-        try {
-            if (!tokenURI || !tokenURI.startsWith('http')) return;
-            const metadataStr = await getJSON(tokenURI);
-            const computedHash = '0x' + sha256(metadataStr);
-            if (computedHash !== providedHash) {
-                console.warn(`⚠️ Metadata hash mismatch for NFT ${tokenAddress}/${tokenId}`);
-                // Optionally flag NFTModel with isCompromised: true if defined
-                await NFTModel.updateOne(
-                    { tokenAddress, tokenId },
-                    { $set: { metadataVerified: false, metadataHashMismatch: true } }
-                );
-            } else {
-                await NFTModel.updateOne(
-                    { tokenAddress, tokenId },
-                    { $set: { metadataVerified: true } }
-                );
-            }
-        } catch (e: any) {
-            console.error(`Failed to verify metadata for ${tokenId}:`, e.message || e);
         }
     }
 }

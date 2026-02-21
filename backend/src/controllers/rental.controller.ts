@@ -46,14 +46,14 @@ export const rentFromListing = async (req: Request, res: Response) => {
             // nftId is legacy app id; find NFT to map to tokenAddress/tokenId
             const nft = await NFTModel.findOne({ id: nftId });
             if (nft) {
-                listing = await ListingModel.findOne({ tokenAddress: nft.tokenAddress, tokenId: nft.tokenId, status: { $in: ['active', 'confirmed'] } });
+                listing = await ListingModel.findOne({ tokenAddress: nft.tokenAddress, tokenId: nft.tokenId, status: 'ACTIVE' });
             }
         }
 
         if (!listing) return res.status(404).json({ status: 'error', error: 'Listing not found' });
 
         // Ensure listing is active/confirmed on-chain
-        if (!['active', 'confirmed'].includes(listing.status)) {
+        if (listing.status !== 'ACTIVE') {
             return res.status(400).json({ status: 'error', error: `Listing is not active (status=${listing.status})` });
         }
 
@@ -129,7 +129,7 @@ export const notifyRentalTx = async (req: Request, res: Response) => {
         if (!listing && nftId) {
             const nft = await NFTModel.findOne({ id: nftId });
             if (nft) {
-                listing = await ListingModel.findOne({ tokenAddress: nft.tokenAddress, tokenId: nft.tokenId, status: { $in: ['active', 'confirmed'] } });
+                listing = await ListingModel.findOne({ tokenAddress: nft.tokenAddress, tokenId: nft.tokenId, status: 'ACTIVE' });
             }
         }
 
@@ -145,7 +145,7 @@ export const notifyRentalTx = async (req: Request, res: Response) => {
                         renterWallet: renterWallet.toLowerCase(),
                         ownerWallet: listing?.seller ?? null,
                         totalPrice: value ? String(value) : listing?.pricePerDay ?? listing?.price ?? '0',
-                        status: 'pending',
+                        status: 'PENDING',
                         txHash,
                         logIndex: -1,
                         createdAt: new Date(),
@@ -169,7 +169,7 @@ export const notifyRentalTx = async (req: Request, res: Response) => {
                     renterWallet: renterWallet.toLowerCase(),
                     ownerWallet: listing.seller ?? listing.sellerId ?? null,
                     totalPrice: value ? String(value) : listing.pricePerDay ?? listing.price ?? '0',
-                    status: 'pending',
+                    status: 'PENDING',
                     txHash,
                     logIndex: -1,
                     createdAt: new Date(),
@@ -183,7 +183,7 @@ export const notifyRentalTx = async (req: Request, res: Response) => {
         try {
             await NFTModel.updateOne(
                 { tokenAddress: listing.tokenAddress, tokenId: listing.tokenId },
-                { $set: { status: 'pending', isEscrowed: true } }
+                { $set: { status: 'LISTING', isEscrowed: true } } // Mongoose schema has LISTING not PENDING
             );
         } catch (e) {
             console.warn('Failed to mark NFT pending locally:', e);

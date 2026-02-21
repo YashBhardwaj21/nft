@@ -13,7 +13,7 @@ interface NFTCardProps {
 }
 
 const NFTCard = ({ nft, status = 'listing', isOwner = false, onAction }: NFTCardProps) => {
-    const isRentedOut = status === 'owned' && (nft.status === 'rented' || nft.isEscrowed);
+    const isRentedOut = status === 'owned' && (nft.status === 'RENTED' || nft.isEscrowed);
 
     return (
         <Card className="group relative overflow-hidden border border-white/5 bg-[#161a2b] hover:border-primary/50 transition-all duration-300 hover:shadow-2xl hover:shadow-primary/10 hover:-translate-y-1 rounded-[1.5rem]">

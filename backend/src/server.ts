@@ -8,6 +8,7 @@ dotenv.config();
 import connectDB from './config/db.js';
 import { CryptoService } from './security/cryptoService.js';
 import { chainListener } from './services/chainListener.js';
+import { projector } from './services/projector.js';
 import nftRoutes from './routes/nft.routes.js';
 import marketplaceRoutes from './routes/marketplace.routes.js';
 import rentalRoutes from './routes/rental.routes.js';
@@ -58,8 +59,9 @@ app.use(errorHandler);
 // Start server
 const startServer = async () => {
     try {
-        // Start Chain Listener
+        // Start Chain Listener and Projector workers
         chainListener.start();
+        projector.start();
 
         // Run Crypto Self-Test — crashes server if any primitive is broken
         try {

@@ -13,7 +13,7 @@ export interface NFT {
     tokenId?: string;
     tokenAddress?: string;
     contractAddress?: string;
-    status: 'available' | 'rented' | 'listing' | 'listed';
+    status: 'AVAILABLE' | 'RENTED' | 'LISTING';
     isEscrowed?: boolean;
     maxDuration?: number;
     renterWallet?: string;
@@ -22,7 +22,7 @@ export interface NFT {
     views?: number;
     timeLeft?: string;
     rentalEndDate?: Date;
-    mintStatus?: 'draft' | 'pending' | 'confirmed' | 'failed';
+    mintStatus?: 'DRAFT' | 'PENDING' | 'CONFIRMED' | 'FAILED';
     metadataHash?: string;
     mintTxHash?: string;
 }
@@ -55,7 +55,7 @@ export interface Listing {
     seller: string; // sellerId or seller object
     createdAt: Date;
     metadataHash?: string;
-    status: 'draft' | 'pending' | 'confirmed' | 'cancelled' | 'failed';
+    status: 'LOCAL_DRAFT' | 'PENDING_CREATE' | 'ACTIVE' | 'PENDING_CANCEL' | 'CANCELLED' | 'RENTED';
 }
 
 export interface RentalHistoryItem {

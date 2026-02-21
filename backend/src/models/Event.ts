@@ -7,9 +7,6 @@ export interface BlockchainEvent {
     logIndex: number;
     blockNumber: number;
 
-    eventName?: 'NFTMinted' | 'ListingCreated' | 'ListingCancelled' | 'Rented';
-    type: 'Mint' | 'List' | 'Cancel' | 'Rent';
-
     status: 'pending' | 'processing' | 'processed' | 'failed';
     attempts: number;
     error?: string;
@@ -28,13 +25,6 @@ const eventSchema = new mongoose.Schema<BlockchainEvent>({
     txHash: { type: String, required: true },
     logIndex: { type: Number, required: true },
     blockNumber: { type: Number, required: true },
-
-    eventName: {
-        type: String,
-        enum: ['NFTMinted', 'ListingCreated', 'ListingCancelled', 'Rented']
-    },
-
-    type: { type: String, enum: ['Mint', 'List', 'Cancel', 'Rent'], required: true },
 
     status: {
         type: String,

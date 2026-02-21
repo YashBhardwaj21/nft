@@ -4,7 +4,6 @@ import {
     metaMaskWallet,
     rainbowWallet,
     coinbaseWallet,
-    walletConnectWallet,
 } from '@rainbow-me/rainbowkit/wallets';
 import { sepolia, polygonAmoy } from 'wagmi/chains';
 
@@ -26,7 +25,6 @@ export const config = getDefaultConfig({
                 metaMaskWallet,
                 rainbowWallet,
                 coinbaseWallet,
-                walletConnectWallet,
             ],
         },
     ],

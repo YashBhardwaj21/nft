@@ -8,14 +8,14 @@ export interface NFT {
     owner: string;
     collectionName: string;
     creator: string;
-    price: number; // Changed to number
-    rentalPrice?: number; // Changed to number
-    maxDuration?: number; // New
+    price: number;
+    rentalPrice?: number;
+    maxDuration?: number;
     currency: string;
-    status: 'available' | 'rented' | 'listing' | 'listed';
-    isEscrowed?: boolean; // New
-    renterWallet?: string; // New
-    expiresAt?: Date; // New
+    status: 'AVAILABLE' | 'RENTED' | 'LISTING';
+    isEscrowed?: boolean;
+    renterWallet?: string;
+    expiresAt?: Date;
     likes: number;
     views?: number;
     metadata?: Record<string, any>;
@@ -31,7 +31,7 @@ export interface NFT {
     metadataHash?: string;
     mintTxHash?: string;
     blockNumber?: number;
-    mintStatus?: 'draft' | 'pending' | 'confirmed' | 'failed';
+    mintStatus?: 'DRAFT' | 'PENDING' | 'CONFIRMED' | 'FAILED';
 
     createdAt?: Date;
     updatedAt?: Date;
@@ -39,15 +39,16 @@ export interface NFT {
 
 export interface Rental {
     id: string;
+    listingId?: string;
     nftId: string;
-    renterId: string;
-    ownerId: string;
-    rentalPrice: number; // Changed to number
+    renter: string;
+    owner: string;
+    rentalPrice: number;
     duration: number;
     currency: string;
-    startDate: Date;
-    endDate: Date;
-    status: 'pending' | 'active' | 'completed' | 'cancelled';
+    startAt?: Date;
+    expiresAt?: Date;
+    status: 'PENDING' | 'ACTIVE';
     transactionHash?: string;
     createdAt?: Date;
 }
@@ -58,16 +59,18 @@ export interface Listing {
     tokenAddress?: string; // Address of the NFT contract
     tokenId?: string; // Added for chain-first integration
     onChainListingId?: number; // Added to map to DAOMarketplaceMarket listingId
-    sellerId: string;
+    seller: string;
+    sellerId?: string;
     price: string;
+    pricePerDay?: string;
     rentalPrice?: string;
     currency: string;
-    type: 'sale' | 'rent'; // New
-    duration?: number; // in days
+    type: 'sale' | 'rent';
+    duration?: number;
     minDuration?: number;
     maxDuration?: number;
     metadataHash?: string;
-    status: 'draft' | 'pending' | 'confirmed' | 'cancelled' | 'failed';
+    status: 'LOCAL_DRAFT' | 'PENDING_CREATE' | 'ACTIVE' | 'PENDING_CANCEL' | 'CANCELLED' | 'RENTED';
     views: number;
     likes: number;
     confirmed?: boolean;

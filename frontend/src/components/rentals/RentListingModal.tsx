@@ -7,8 +7,12 @@ import { NFT } from "../../types";
 import api from "../../api/client";
 import { toast } from "sonner";
 import { Loader2, CheckCircle, ExternalLink } from "lucide-react";
-import { useWriteContract, useWaitForTransactionReceipt, useAccount } from 'wagmi';
+import { useWriteContract, useAccount } from 'wagmi';
+import { waitForTransactionReceipt } from '@wagmi/core';
 import { parseEther } from 'viem';
+import { config } from "../../config/wagmi";
+import { ensureSepolia } from "../../lib/ensureCorrectNetwork";
+import { verifyOwnership } from "../../lib/checkOwnership";
 
 const MARKETPLACE_ABI = [
     {
@@ -58,163 +62,119 @@ const RentListingModal = ({ isOpen, onClose, nft, onSuccess }: RentListingModalP
     const [step, setStep] = useState<'idle' | 'drafting' | 'approving' | 'confirmingApproval' | 'signing' | 'confirming' | 'backend' | 'success'>('idle');
     const [draftId, setDraftId] = useState<string | null>(null);
     const [metadataHash, setMetadataHash] = useState<string | null>(null);
-
-    const [approvalTxHash, setApprovalTxHash] = useState<`0x${string}` | undefined>(undefined);
     const [txHash, setTxHash] = useState<`0x${string}` | undefined>(undefined);
+    const [pending, setPending] = useState(false);
 
     // Wagmi Hooks
     const { writeContractAsync } = useWriteContract();
 
-    // Wait for Approval Tx
-    const { isSuccess: isApprovalSuccess } = useWaitForTransactionReceipt({
-        hash: approvalTxHash,
-    });
-
-    // Wait for Listing Tx
-    const { isSuccess: isTxSuccess, data: receipt } = useWaitForTransactionReceipt({
-        hash: txHash,
-    });
-
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        console.log(`[ACTION] handleSubmit triggered! Form validated.`, {
-            nftId: nft?.id,
-            tokenId: nft?.tokenId,
-            address: address,
-            price: price,
-            duration: duration
-        });
 
-        if (!nft || !nft.tokenId) {
-            console.error(`[ERROR] Missing NFT data:`, nft);
-            toast.error("This NFT is missing contract data and cannot be listed on-chain.");
-            return;
-        }
-
-        if (!address) {
-            console.error(`[ERROR] User is not connected to a wallet!`);
-            toast.error("Wallet not connected.");
-            return;
-        }
+        if (pending) return;
+        setPending(true);
 
         try {
+            if (!nft || !nft.tokenId) {
+                toast.error("This NFT is missing contract data and cannot be listed on-chain.");
+                return;
+            }
+
+            if (!address) {
+                toast.error("Wallet not connected.");
+                return;
+            }
+
             const marketplaceAddress = import.meta.env.VITE_MARKETPLACE_ADDRESS;
-            console.log(`[DATA] Marketplace Address from env:`, marketplaceAddress);
+            const contractAddress = nft.tokenAddress || nft.contractAddress || import.meta.env.VITE_CONTRACT_ADDRESS;
+
             if (!marketplaceAddress) {
                 throw new Error("Marketplace Address not configured in env");
             }
 
-            console.log(`[STATE] Changing step to 'drafting'`);
+            // 1. Preflight Checks
+            await ensureSepolia();
+            await verifyOwnership(contractAddress as Extract<`0x${string}`, string>, BigInt(nft.tokenId), address as Extract<`0x${string}`, string>);
+
             setStep('drafting');
 
-            // 1. Hit Draft API
-            console.log(`[NETWORK] Sending /marketplace/draft POST request...`);
+            // 2. Hit Draft API
             const draftRes = await api.post('/marketplace/draft', {
                 nftId: nft.id,
                 price: parseFloat(price),
                 duration: parseInt(duration),
             });
-            console.log(`[NETWORK] /marketplace/draft Response received:`, draftRes.data);
 
             const newDraftId = draftRes.data.data.draftId;
             const newMetadataHash = draftRes.data.data.metadataHash;
-            console.log(`[DATA] Extracted Draft properties:`, { newDraftId, newMetadataHash });
 
             setDraftId(newDraftId);
             setMetadataHash(newMetadataHash);
 
-            console.log(`[STATE] Changing step to 'approving'`);
             setStep('approving');
 
-            // 2. Approve Marketplace to manage this specific NFT
-            console.log(`[BLOCKCHAIN] Requesting writeContractAsync for approve()`, {
-                address: import.meta.env.VITE_CONTRACT_ADDRESS,
-                marketplaceAddress,
-                tokenId: nft.tokenId
-            });
+            // 3. Approve Marketplace
             const approveHash = await writeContractAsync({
-                address: import.meta.env.VITE_CONTRACT_ADDRESS as `0x${string}`,
+                address: contractAddress as `0x${string}`,
                 abi: NFT_ABI,
                 functionName: 'approve',
                 args: [marketplaceAddress as `0x${string}`, BigInt(nft.tokenId)]
             });
-            console.log(`[BLOCKCHAIN] approve() Transaction submitted. Hash:`, approveHash);
 
-            setApprovalTxHash(approveHash);
-            console.log(`[STATE] Changing step to 'confirmingApproval'`);
             setStep('confirmingApproval');
-            // The useEffect will catch the success and trigger the listing step
+            await waitForTransactionReceipt(config, { hash: approveHash });
+
+            // 4. Create Listing
+            setStep('signing');
+            const listHash = await writeContractAsync({
+                address: marketplaceAddress as `0x${string}`,
+                abi: MARKETPLACE_ABI,
+                functionName: 'listNFT',
+                args: [
+                    contractAddress as `0x${string}`,
+                    BigInt(nft.tokenId),
+                    parseEther(price),
+                    BigInt(1), // min duration 1 day
+                    BigInt(parseInt(duration)),
+                    newMetadataHash as `0x${string}`
+                ],
+            });
+
+            setTxHash(listHash);
+            setStep('confirming');
+            await waitForTransactionReceipt(config, { hash: listHash });
+
+            // 5. Backend Confirmation
+            setStep('backend');
+            await api.post('/marketplace/notify', {
+                draftId: newDraftId,
+                txHash: listHash
+            }, { headers: { 'Idempotency-Key': crypto.randomUUID() } });
+
+            setStep('success');
+            toast.success("Successfully listed for rent!");
+            onSuccess();
 
         } catch (error: any) {
             console.error("[ERROR] Transaction failed in handleSubmit:", error);
             setStep('idle');
-            toast.error(error.message || "Failed to initiate transaction");
+            // If the user rejects the transaction, viability shouldn't show it as an ugly error string to the user necessarily but we log it.
+            if (error.message?.includes("User rejected")) {
+                toast.error("Transaction cancelled.");
+            } else {
+                toast.error(error.message || "Failed to initiate transaction");
+            }
+        } finally {
+            setPending(false);
         }
     };
 
-    // Effect: Once approval is confirmed, trigger the listing transaction
-    useEffect(() => {
-        if (step === 'confirmingApproval' && isApprovalSuccess && metadataHash) {
-            const listToMarketplace = async () => {
-                setStep('signing');
-                try {
-                    const marketplaceAddress = import.meta.env.VITE_MARKETPLACE_ADDRESS;
-                    const hash = await writeContractAsync({
-                        address: marketplaceAddress as `0x${string}`,
-                        abi: MARKETPLACE_ABI,
-                        functionName: 'listNFT',
-                        args: [
-                            import.meta.env.VITE_CONTRACT_ADDRESS as `0x${string}`,
-                            BigInt(nft?.tokenId as string),
-                            parseEther(price),
-                            BigInt(1), // min duration 1 day
-                            BigInt(parseInt(duration)),
-                            metadataHash as `0x${string}` // passes the 0x prefixed hex
-                        ],
-                    });
-                    setTxHash(hash);
-                    setStep('confirming');
-                } catch (error: any) {
-                    console.error("Listing transaction failed:", error);
-                    setStep('idle');
-                    toast.error(error.message || "Failed to initiate listing transaction");
-                }
-            };
-            listToMarketplace();
-        }
-    }, [step, isApprovalSuccess, writeContractAsync, nft, price, duration, metadataHash]);
-
-    // Effect: Once transaction is confirmed, tell the backend
-    useEffect(() => {
-        if (step === 'confirming' && isTxSuccess && receipt && txHash && draftId) {
-            setStep('backend');
-
-            // Tell Backend (Fast Path)
-            api.post('/marketplace/notify', {
-                draftId,
-                txHash
-            }, { headers: { 'Idempotency-Key': crypto.randomUUID() } })
-                .then(() => {
-                    setStep('success');
-                    toast.success("Successfully listed for rent!");
-                    onSuccess();
-                })
-                .catch(err => {
-                    console.error("Backend failed:", err);
-                    // Even if backend fails, the chain listener will pick it up
-                    toast.success("Listed on-chain! Synching to dashboard shortly...");
-                    setStep('success');
-                    onSuccess();
-                });
-        }
-    }, [step, isTxSuccess, receipt, txHash, draftId, onSuccess]);
-
     const reset = () => {
+        if (pending) return;
         setPrice("");
         setDuration(import.meta.env.VITE_DEFAULT_RENTAL_DURATION || "30");
         setStep('idle');
         setTxHash(undefined);
-        setApprovalTxHash(undefined);
         setDraftId(null);
         setMetadataHash(null);
         onClose();

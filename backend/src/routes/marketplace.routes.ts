@@ -19,11 +19,11 @@ router.post('/draft', protect, marketplaceController.createListingDraft);
 router.post('/notify', protect, marketplaceController.notifyListingTx);
 
 /**
- * @route   POST /api/marketplace/cancel/notify
- * @desc    Notify backend of submitted tx Hash for cancelled listing
+ * @route   DELETE /api/marketplace/listings/:id/cancel
+ * @desc    Force delete a listing (Unlist from marketplace visually)
  * @access  Private
  */
-router.post('/cancel/notify', protect, marketplaceController.notifyCancelListing);
+router.delete('/listings/:id/cancel', protect, marketplaceController.deleteDraftListing);
 
 
 /**

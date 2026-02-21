@@ -28,16 +28,16 @@ const nftSchema = new mongoose.Schema<NFT>({
     blockNumber: { type: Number },
     mintStatus: {
         type: String,
-        enum: ['draft', 'pending', 'confirmed', 'failed'],
-        default: 'draft',
+        enum: ['DRAFT', 'PENDING', 'CONFIRMED', 'FAILED'],
+        default: 'DRAFT',
         index: true
     },
 
     // -------- RENTAL STATE (CHAIN MIRROR) --------
     status: {
         type: String,
-        enum: ['available', 'listing', 'rented'],
-        default: 'available',
+        enum: ['AVAILABLE', 'LISTING', 'RENTED'],
+        default: 'AVAILABLE',
         index: true
     },
 

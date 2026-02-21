@@ -16,7 +16,7 @@ const listingSchema = new mongoose.Schema<Listing>({
     sellerId: { type: String }, // Legacy compatibility
 
     // -------- ECONOMICS --------
-    pricePerDay: { type: String, required: true }, // store wei string
+    pricePerDay: { type: String }, // store wei string
     price: { type: String }, // Legacy compatibility
     rentalPrice: { type: String }, // Legacy compatibility
     minDuration: { type: Number, required: true },
@@ -27,8 +27,8 @@ const listingSchema = new mongoose.Schema<Listing>({
     // -------- STATE --------
     status: {
         type: String,
-        enum: ['draft', 'pending', 'active', 'confirmed', 'cancelled', 'expired'],
-        default: 'draft',
+        enum: ['LOCAL_DRAFT', 'PENDING_CREATE', 'ACTIVE', 'PENDING_CANCEL', 'CANCELLED', 'RENTED'],
+        default: 'LOCAL_DRAFT',
         index: true
     },
 
@@ -54,7 +54,12 @@ const listingSchema = new mongoose.Schema<Listing>({
  */
 listingSchema.index(
     { onChainListingId: 1, tokenAddress: 1 },
-    { unique: true, sparse: true }
+    {
+        unique: true,
+        partialFilterExpression: {
+            onChainListingId: { $exists: true, $ne: null }
+        }
+    }
 );
 
 /**

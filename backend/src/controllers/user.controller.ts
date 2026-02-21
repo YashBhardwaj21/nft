@@ -19,12 +19,12 @@ export const getUserStats = async (req: Request, res: Response) => {
         const totalValue = userNFTs.reduce((sum, nft) => sum + (nft.price || 0), 0);
 
         // Count actual active listings (NFTs listed on marketplace)
-        const activeListings = await ListingModel.countDocuments({ sellerId: id, status: 'active' });
+        const activeListings = await ListingModel.countDocuments({ sellerId: id, status: 'ACTIVE' });
 
         // Active Rentals (as Tenant)
         const activeRentalsCount = await RentalModel.countDocuments({
             renterId: id,
-            status: 'active'
+            status: 'ACTIVE'
         });
 
         // Total Earnings (as Landlord)
@@ -34,7 +34,7 @@ export const getUserStats = async (req: Request, res: Response) => {
         // Active Rentals (as Landlord) - items currently rented OUT
         const activeRentedOutCount = await RentalModel.countDocuments({
             ownerId: id,
-            status: 'active'
+            status: 'ACTIVE'
         });
 
         const stats: UserStats = {
@@ -94,7 +94,7 @@ export const getRentedNFTs = async (req: Request, res: Response) => {
 
         const activeRentals = await RentalModel.find({
             renterId: id,
-            status: 'active'
+            status: 'ACTIVE'
         });
 
         const nftIds = activeRentals.map(r => r.nftId);
@@ -133,7 +133,7 @@ export const getUserListings = async (req: Request, res: Response) => {
         // Get actual active listings from ListingModel
         const listings = await ListingModel.find({
             sellerId: id,
-            status: 'active'
+            status: 'ACTIVE'
         });
 
         // Enrich with NFT data

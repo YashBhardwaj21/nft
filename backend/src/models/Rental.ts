@@ -3,23 +3,24 @@ import mongoose from 'mongoose';
 export interface Rental extends mongoose.Document {
     // On-chain identity
     onChainListingId: number;
+    listingId?: string;
     tokenAddress: string;
     tokenId: string;
 
     // Wallet identities (NOT user ids)
-    renterWallet: string;
-    ownerWallet: string;
+    renter: string;
+    owner: string;
 
     // Economic data
     totalPrice: string; // store wei string to avoid precision loss
 
     // Time from blockchain
     startBlock?: number;
-    startDate?: Date;
+    startAt?: Date;
     expiresAt?: Date;
 
     // Lifecycle
-    status: 'draft' | 'pending' | 'active' | 'confirmed' | 'expired' | 'cancelled';
+    status: 'PENDING' | 'ACTIVE';
 
     // Idempotency
     txHash: string;
@@ -31,22 +32,23 @@ export interface Rental extends mongoose.Document {
 
 const rentalSchema = new mongoose.Schema<Rental>({
     onChainListingId: { type: Number },
+    listingId: { type: String }, // added to satisfy prompt
     tokenAddress: { type: String, required: true, lowercase: true },
     tokenId: { type: String, required: true },
 
-    renterWallet: { type: String, required: true, lowercase: true },
-    ownerWallet: { type: String, lowercase: true },
+    renter: { type: String, required: true, lowercase: true }, // renamed from renterWallet
+    owner: { type: String, lowercase: true }, // renamed from ownerWallet
 
     totalPrice: { type: String },
 
     startBlock: { type: Number },
-    startDate: { type: Date, default: Date.now },
+    startAt: { type: Date, default: Date.now }, // renamed from startDate
     expiresAt: { type: Date },
 
     status: {
         type: String,
-        enum: ['draft', 'pending', 'active', 'confirmed', 'expired', 'cancelled'],
-        default: 'pending'
+        enum: ['PENDING', 'ACTIVE'],
+        default: 'PENDING'
     },
 
     txHash: { type: String, required: true },

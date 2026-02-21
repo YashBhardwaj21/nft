@@ -38,6 +38,9 @@ importers:
       '@tanstack/react-query':
         specifier: ^5.0.0
         version: 5.90.21(react@18.3.1)
+      '@wagmi/core':
+        specifier: ^3.4.0
+        version: 3.4.0(@tanstack/query-core@5.90.20)(@types/react@18.3.28)(ox@0.12.1(typescript@5.9.3)(zod@3.22.4))(react@18.3.1)(typescript@5.9.3)(use-sync-external-store@1.4.0(react@18.3.1))(viem@2.45.3(typescript@5.9.3)(zod@3.22.4))
       '@web3modal/ethers':
         specifier: ^5.1.11
         version: 5.1.11(@types/react@18.3.28)(ethers@6.16.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -1174,6 +1177,21 @@ packages:
 
   '@wagmi/core@3.3.3':
     resolution: {integrity: sha512-Yg7fZgLDReh5TzCyFEHsaoDgk9FaQ0lAI+RSGYk7qFBs3SAnRXlHzc9NxEsv9E91JEzWaEzYI0WvgDFALT0Msw==}
+    peerDependencies:
+      '@tanstack/query-core': '>=5.0.0'
+      ox: '>=0.11.1'
+      typescript: '>=5.7.3'
+      viem: 2.x
+    peerDependenciesMeta:
+      '@tanstack/query-core':
+        optional: true
+      ox:
+        optional: true
+      typescript:
+        optional: true
+
+  '@wagmi/core@3.4.0':
+    resolution: {integrity: sha512-EU5gDsUp5t7+cuLv12/L8hfyWfCIKsBNiiBqpOqxZJxvAcAiQk4xFe2jMgaQPqApc3Omvxrk032M8AQ4N0cQeg==}
     peerDependencies:
       '@tanstack/query-core': '>=5.0.0'
       ox: '>=0.11.1'
@@ -3652,6 +3670,22 @@ snapshots:
       typescript: 5.9.3
 
   '@wagmi/core@3.3.3(@tanstack/query-core@5.90.20)(@types/react@18.3.28)(ox@0.12.1(typescript@5.9.3)(zod@3.22.4))(react@18.3.1)(typescript@5.9.3)(use-sync-external-store@1.4.0(react@18.3.1))(viem@2.45.3(typescript@5.9.3)(zod@3.22.4))':
+    dependencies:
+      eventemitter3: 5.0.1
+      mipd: 0.0.7(typescript@5.9.3)
+      viem: 2.45.3(typescript@5.9.3)(zod@3.22.4)
+      zustand: 5.0.0(@types/react@18.3.28)(react@18.3.1)(use-sync-external-store@1.4.0(react@18.3.1))
+    optionalDependencies:
+      '@tanstack/query-core': 5.90.20
+      ox: 0.12.1(typescript@5.9.3)(zod@3.22.4)
+      typescript: 5.9.3
+    transitivePeerDependencies:
+      - '@types/react'
+      - immer
+      - react
+      - use-sync-external-store
+
+  '@wagmi/core@3.4.0(@tanstack/query-core@5.90.20)(@types/react@18.3.28)(ox@0.12.1(typescript@5.9.3)(zod@3.22.4))(react@18.3.1)(typescript@5.9.3)(use-sync-external-store@1.4.0(react@18.3.1))(viem@2.45.3(typescript@5.9.3)(zod@3.22.4))':
     dependencies:
       eventemitter3: 5.0.1
       mipd: 0.0.7(typescript@5.9.3)

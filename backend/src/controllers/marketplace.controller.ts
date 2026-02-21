@@ -11,7 +11,7 @@ import { ApiResponse } from '../types/index.js';
  */
 export const getAllListings = async (req: Request, res: Response) => {
     try {
-        const { page = 1, limit = 20, status = 'confirmed' } = req.query as any;
+        const { page = 1, limit = 20, status = 'ACTIVE' } = req.query as any;
 
         const filter: any = {};
         if (status) filter.status = status;
@@ -43,7 +43,7 @@ export const getAllListings = async (req: Request, res: Response) => {
             };
         }));
 
-        const response: ApiResponse = {
+        const response: ApiResponse | any = {
             status: 'success',
             data: enrichedListings,
             pagination: {
@@ -71,7 +71,7 @@ export const searchListings = async (req: Request, res: Response) => {
 
         // Start with confirmed listings by default
         const pipeline: any[] = [
-            { $match: { status: 'confirmed' } },
+            { $match: { status: 'ACTIVE' } },
             // Convert price string to number for numeric comparisons and scoring
             {
                 $addFields: {
@@ -153,7 +153,7 @@ export const getTrendingNFTs = async (req: Request, res: Response) => {
         const { limit = 10 } = req.query as any;
 
         const pipeline = [
-            { $match: { status: 'confirmed' } },
+            { $match: { status: 'ACTIVE' } },
             {
                 $addFields: {
                     score: { $add: [{ $ifNull: ['$views', 0] }, { $multiply: [{ $ifNull: ['$likes', 0] }, 2] }] },
@@ -182,7 +182,7 @@ export const getTrendingNFTs = async (req: Request, res: Response) => {
                 }
             },
             { $unwind: { path: '$nft', preserveNullAndEmptyArrays: false } }
-        ];
+        ] as any[];
 
         const trending = await ListingModel.aggregate(pipeline).allowDiskUse(true);
 
@@ -201,7 +201,7 @@ export const getMarketplaceStats = async (req: Request, res: Response) => {
                     _id: null,
                     totalListings: { $sum: 1 },
                     activeListings: {
-                        $sum: { $cond: [{ $eq: ['$status', 'confirmed'] }, 1, 0] }
+                        $sum: { $cond: [{ $eq: ['$status', 'ACTIVE'] }, 1, 0] }
                     },
                     totalViews: { $sum: { $ifNull: ['$views', 0] } },
                     totalLikes: { $sum: { $ifNull: ['$likes', 0] } }
@@ -252,7 +252,51 @@ export const createListingDraft = async (req: Request, res: Response) => {
             return res.status(403).json({ status: 'error', error: 'Not authorized. You do not own this NFT.' });
         }
 
-        if (nft.status === 'rented' || nft.isEscrowed) {
+        // Normalize blockchain identity (legacy drafts might lack tokenAddress)
+        const resolvedTokenAddress = nft.tokenAddress || nft.contractAddress || process.env.CONTRACT_ADDRESS;
+        if (!resolvedTokenAddress || nft.tokenId === undefined || nft.tokenId === null) {
+            return res.status(400).json({ status: 'error', error: 'NFT is missing blockchain identity (tokenAddress or tokenId).' });
+        }
+        nft.tokenAddress = resolvedTokenAddress; // Guarantee it for downstream metadata/DB insertion
+
+        // --- IDEMPOTENCY & STATE MACHINE ---
+        // Find existing listing for this chain identity, newest first
+        const existingListing = await ListingModel.findOne({
+            tokenAddress: resolvedTokenAddress.toLowerCase(),
+            tokenId: nft.tokenId.toString()
+        }).sort({ createdAt: -1 });
+
+        if (existingListing) {
+            if (['LOCAL_DRAFT', 'PENDING_CREATE'].includes(existingListing.status)) {
+                // Resume flow: Return existing draft intent
+                return res.status(200).json({
+                    status: 'success',
+                    data: {
+                        draftId: existingListing.id,
+                        metadataHash: existingListing.metadataHash,
+                        tokenURI: existingListing.tokenURI
+                    },
+                    message: 'Resumed existing draft'
+                });
+            }
+
+            if (existingListing.status === 'ACTIVE') {
+                return res.status(400).json({ status: 'error', error: 'Already listed' });
+            }
+
+            if (existingListing.status === 'RENTED') {
+                return res.status(400).json({ status: 'error', error: 'Currently rented' });
+            }
+
+            if (existingListing.status === 'PENDING_CANCEL') {
+                return res.status(400).json({ status: 'error', error: 'Cancellation pending' });
+            }
+
+            // If status is 'CANCELLED', we allow it to fall through and create a NEW draft
+        }
+
+        // Catch-all backup checking the NFT document state directly
+        if (nft.status === 'RENTED' || nft.isEscrowed) {
             return res.status(400).json({ status: 'error', error: 'NFT is currently rented or in escrow.' });
         }
 
@@ -296,7 +340,7 @@ export const createListingDraft = async (req: Request, res: Response) => {
             metadataHash: `0x${metadataHash}`,
             tokenURI: metadataUrl,
             type: 'rent',
-            status: 'draft',
+            status: 'LOCAL_DRAFT',
             createdAt: new Date()
         });
 
@@ -339,11 +383,12 @@ export const notifyListingTx = async (req: Request, res: Response) => {
             return res.status(404).json({ status: 'error', error: 'Draft not found' });
         }
 
-        if (listing.sellerId.toLowerCase() !== userId.toLowerCase()) {
+        const ownerValue = listing.seller || listing.sellerId || '';
+        if (ownerValue.toLowerCase() !== userId.toLowerCase()) {
             return res.status(403).json({ status: 'error', error: 'Not authorized.' });
         }
 
-        if (listing.status !== 'draft') {
+        if (listing.status !== 'LOCAL_DRAFT') {
             // If previously marked pending with same txHash, respond ok
             if (listing.txHash === txHash) {
                 return res.status(200).json({ status: 'success', data: listing, message: 'Transaction already recorded.' });
@@ -352,9 +397,9 @@ export const notifyListingTx = async (req: Request, res: Response) => {
         }
 
         // Record tx and mark pending (listener will confirm).
-        listing.status = 'pending';
+        listing.status = 'PENDING_CREATE';
         listing.txHash = txHash;
-        listing.updatedAt = new Date();
+        (listing as any).updatedAt = new Date();
         await listing.save();
 
         res.status(200).json({
@@ -369,37 +414,42 @@ export const notifyListingTx = async (req: Request, res: Response) => {
 };
 
 /**
- * Notify cancel (frontend can call after submitting on-chain cancel tx)
- * ChainListener will mark cancelled when event is processed.
+ * Force delete a listing (Unlist from marketplace visually)
  */
-export const notifyCancelListing = async (req: Request, res: Response) => {
+export const deleteDraftListing = async (req: Request, res: Response) => {
     try {
-        const { onChainListingId, txHash } = req.body;
+        const { id } = req.params;
         const userId = (req as any).user.id;
 
-        if (!onChainListingId || !txHash) {
-            return res.status(400).json({ status: 'error', error: 'onChainListingId and txHash are required' });
-        }
-
-        const listing = await ListingModel.findOne({ onChainListingId: Number(onChainListingId) });
+        const listing = await ListingModel.findOne({ id });
         if (!listing) {
             return res.status(404).json({ status: 'error', error: 'Listing not found' });
         }
 
-        if (listing.sellerId.toLowerCase() !== userId.toLowerCase()) {
-            return res.status(403).json({ status: 'error', error: 'Not authorized.' });
+        const ownerValue = listing.seller || listing.sellerId || '';
+        if (ownerValue.toLowerCase() !== userId.toLowerCase()) {
+            return res.status(403).json({ status: 'error', error: 'Not authorized to remove this listing.' });
         }
 
-        // We do not perform chain cancellation here — frontend must submit TX.
-        // Record txHash to aid reconciliation; listener will finalize.
-        listing.pendingCancelTx = txHash;
-        listing.status = 'pending_cancel';
-        listing.updatedAt = new Date();
-        await listing.save();
+        // Force delete from DB to remove from marketplace frontend instantly
+        await ListingModel.deleteOne({ id });
 
-        res.status(200).json({ status: 'success', message: 'Cancellation tx recorded. Waiting for confirmations.' });
+        // Also ensure the NFT isn't stuck in "listing" or "escrowed"
+        if (listing.nftId) {
+            await NFTModel.updateOne(
+                { id: listing.nftId },
+                { $set: { status: 'AVAILABLE', isEscrowed: false } }
+            );
+        } else if (listing.tokenAddress && listing.tokenId) {
+            await NFTModel.updateOne(
+                { tokenAddress: listing.tokenAddress, tokenId: listing.tokenId },
+                { $set: { status: 'AVAILABLE', isEscrowed: false } }
+            );
+        }
+
+        res.status(200).json({ status: 'success', message: 'Listing unlisted locally successfully' });
     } catch (error: any) {
-        console.error("notifyCancelListing error:", error);
+        console.error("deleteDraftListing error:", error);
         res.status(500).json({ status: 'error', error: error.message });
     }
 };

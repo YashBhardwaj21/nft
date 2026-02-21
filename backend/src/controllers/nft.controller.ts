@@ -146,7 +146,7 @@ export const prepareMint = async (req: Request, res: Response) => {
             creator: walletAddress,
             collectionName: 'DAO Collection',
             price: 0, // Not listed yet
-            status: 'available',
+            status: 'AVAILABLE',
 
             // Chain Data
             fileHash,
@@ -154,7 +154,7 @@ export const prepareMint = async (req: Request, res: Response) => {
             metadataCID,
             metadataHash, // Update the DB field
             tokenURI: metadataUrl,
-            mintStatus: 'draft'
+            mintStatus: 'DRAFT'
         });
 
         // 5. Return Prep Data
@@ -164,7 +164,8 @@ export const prepareMint = async (req: Request, res: Response) => {
                 draftId: draftNFT.id,
                 tokenURI: metadataUrl,
                 contractAddress: process.env.CONTRACT_ADDRESS,
-                fileHash
+                fileHash,
+                metadataHash // Need this for the frontend to mint correctly
             }
         });
 
@@ -201,7 +202,7 @@ export const confirmMint = async (req: Request, res: Response) => {
         }
 
         nft.mintTxHash = txHash;
-        nft.mintStatus = 'pending';
+        nft.mintStatus = 'PENDING';
         await nft.save();
 
         res.status(200).json({ status: 'success', message: 'Mint marked as pending' });
@@ -272,14 +273,14 @@ export const deleteNFT = async (req: Request, res: Response) => {
         }
 
         // Block deletion while actively rented / in escrow
-        if (nft.status === 'rented' || nft.isEscrowed) {
+        if (nft.status === 'RENTED' || nft.isEscrowed) {
             return res.status(400).json({ status: 'error', error: 'Cannot delete an NFT that is currently rented or in escrow.' });
         }
 
         // Cancel any active listings for this NFT
         await ListingModel.updateMany(
-            { nftId: id, status: 'active' },
-            { status: 'cancelled' }
+            { nftId: id, status: 'ACTIVE' },
+            { status: 'CANCELLED' }
         );
 
         // Hard-delete the NFT document
