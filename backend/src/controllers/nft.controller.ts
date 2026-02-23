@@ -128,20 +128,53 @@ export const prepareMint = async (req: Request, res: Response) => {
 
 /**
  * Confirm Mint (Proactive Update)
+ * Creates the NFT record in NFTModel from the draft data + on-chain info.
  */
 export const confirmMint = async (req: Request, res: Response) => {
     try {
-        const { draftId, txHash } = req.body;
+        const { draftId, txHash, tokenId, blockNumber, metadataHash } = req.body;
         const walletAddress = (req as any).user.id;
 
         const draft = await DraftModel.findById(draftId);
         if (!draft) return res.status(404).json({ error: 'Draft not found' });
         if (draft.creator !== walletAddress) return res.status(403).json({ error: 'Not authorized' });
+        if (draft.status === 'MINTED') {
+            return res.status(200).json({ status: 'success', message: 'Already confirmed' });
+        }
 
-        draft.status = 'MINTING';
+        const contractAddress = (process.env.CONTRACT_ADDRESS || '').toLowerCase();
+        if (!contractAddress) {
+            return res.status(503).json({ error: 'CONTRACT_ADDRESS not configured' });
+        }
+
+        // Create the NFT fact record — this is what getOwnedNFTs queries
+        const nft = await NFTModel.findOneAndUpdate(
+            { tokenAddress: contractAddress, tokenId: String(tokenId) },
+            {
+                $setOnInsert: {
+                    tokenAddress: contractAddress,
+                    tokenId: String(tokenId),
+                    name: draft.name,
+                    description: draft.description || '',
+                    image: draft.image,
+                    collectionName: 'DAO Collection',
+                    creator: walletAddress,
+                    owner: walletAddress,
+                    tokenURI: draft.tokenURI,
+                    metadataHash: metadataHash || draft.metadataHash,
+                    mintTxHash: txHash,
+                    blockNumber: blockNumber || 0,
+                    id: `${contractAddress}-${tokenId}`,
+                }
+            },
+            { upsert: true, new: true }
+        );
+
+        // Mark draft as completed
+        draft.status = 'MINTED';
         await draft.save();
 
-        res.status(200).json({ status: 'success', message: 'Mint marked as processing' });
+        res.status(200).json({ status: 'success', message: 'Mint confirmed', data: nft });
     } catch (error: any) {
         res.status(500).json({ status: 'error', error: error.message });
     }

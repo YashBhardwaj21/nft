@@ -84,9 +84,9 @@ const NFTCard = ({ nft, status = 'listing', isOwner = false, onAction }: NFTCard
                     </h3>
                     <div className="flex items-center gap-2 text-xs text-gray-400">
                         <div className="w-5 h-5 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-[10px] text-white font-bold">
-                            {nft.creator.charAt(0)}
+                            {(nft.creator || 'U').charAt(0)}
                         </div>
-                        <span className="truncate max-w-[150px] font-medium text-gray-300">@{nft.creator}</span>
+                        <span className="truncate max-w-[150px] font-medium text-gray-300">@{nft.creator || 'Unknown'}</span>
                     </div>
                 </div>
 

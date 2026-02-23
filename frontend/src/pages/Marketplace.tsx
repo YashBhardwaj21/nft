@@ -77,7 +77,7 @@ const Marketplace = () => {
     try {
       let queryParams = new URLSearchParams();
       if (searchTerm) queryParams.append("query", searchTerm);
-      if (sortBy) queryParams.append("sortBy", sortBy);
+      if (sortBy) queryParams.append("sort", sortBy);
       if (activeCategory !== "All") queryParams.append("category", activeCategory);
 
       const response = await api.get(`/marketplace/search?${queryParams.toString()}`);
@@ -90,7 +90,7 @@ const Marketplace = () => {
   const mapResponseToNFTs = (data: any[]): NFT[] => {
     if (!Array.isArray(data)) return [];
     return data
-      .filter((item: any) => item.status !== 'LEGACY_ARCHIVED')
+      .filter((item: any) => item.status !== 'LEGACY_ARCHIVED' && item.nft)
       .map((item: any) => ({
         // Spread the nested nft sub-doc first (name, image, description, etc.)
         ...item.nft,

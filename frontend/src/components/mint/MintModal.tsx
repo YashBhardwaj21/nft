@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useWriteContract, useWaitForTransactionReceipt, useAccount } from 'wagmi';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -130,8 +130,11 @@ export default function MintModal({ isOpen, onClose, onSuccess }: MintModalProps
     // or we can just poll. 
     // Actually, `useWaitForTransactionReceipt` is great.
 
-    // Effect: Confirm on Backend
-    if (step === 'confirming' && isTxSuccess && txHash && draftId && receipt) {
+    // Effect: Confirm on Backend once tx is mined
+    // Wrapped in useEffect to avoid infinite re-render (the old code ran setStep in the render body)
+    useEffect(() => {
+        if (step !== 'confirming' || !isTxSuccess || !txHash || !draftId || !receipt) return;
+
         // Show syncing banner immediately — user doesn't need to wait for backend
         setStep('syncing');
 
@@ -172,7 +175,7 @@ export default function MintModal({ isOpen, onClose, onSuccess }: MintModalProps
                 toast.success('On-chain success! Backend is syncing — your NFT will appear shortly.');
                 onSuccess();
             });
-    }
+    }, [step, isTxSuccess, txHash, draftId, receipt, mintMetadataHash, onSuccess]);
 
     const reset = () => {
         setName('');

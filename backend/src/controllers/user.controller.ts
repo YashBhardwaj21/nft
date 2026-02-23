@@ -62,12 +62,37 @@ export const getUserStats = async (req: Request, res: Response) => {
 export const getOwnedNFTs = async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
-        const ownedNFTs = await NFTModel.find({ owner: id.toLowerCase() }).lean();
+        const normalizedId = id.toLowerCase();
+        const ownedNFTs = await NFTModel.find({ owner: normalizedId }).lean();
+
+        // Also include drafts that are stuck in MINTING/PREPARED state
+        // (these were minted before the confirmMint fix was deployed)
+        const { DraftModel } = await import('../models/Draft.js');
+        const pendingDrafts = await DraftModel.find({
+            creator: normalizedId,
+            status: { $in: ['MINTING', 'PREPARED'] }
+        }).lean();
+
+        // Convert drafts to NFT-shaped items so the frontend can display them
+        const draftAsNFTs = pendingDrafts.map((d: any) => ({
+            id: d._id.toString(),
+            _id: d._id,
+            name: d.name,
+            description: d.description || '',
+            image: d.image,
+            creator: d.creator,
+            owner: d.creator,
+            collectionName: 'DAO Collection',
+            tokenURI: d.tokenURI,
+            // Mark these so the frontend can show an appropriate status
+            isDraft: true,
+            draftStatus: d.status,
+        }));
 
         res.status(200).json({
             status: 'success',
-            data: ownedNFTs,
-            message: `Found ${ownedNFTs.length} owned NFTs`
+            data: [...ownedNFTs, ...draftAsNFTs],
+            message: `Found ${ownedNFTs.length} owned NFTs + ${draftAsNFTs.length} pending mints`
         });
     } catch (error: any) {
         res.status(500).json({ status: 'error', error: error.message });
@@ -121,7 +146,7 @@ export const getUserListings = async (req: Request, res: Response) => {
 
         const listings = await ListingModel.find({
             sellerAddress: normalizedId,
-            status: 'ACTIVE'
+            status: { $in: ['ACTIVE', 'LOCAL_DRAFT', 'PENDING_CREATE', 'RENTED'] }
         }).lean();
 
         const enrichedListings = await Promise.all(listings.map(async (listing) => {

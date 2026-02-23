@@ -487,10 +487,10 @@ const MyNFTs = () => {
                     <>
                       {activeListings.length > 0 ? (
                         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6">
-                          {activeListings.map((listing: any) => (
+                          {activeListings.filter((listing: any) => listing.nft).map((listing: any) => (
                             <NFTCard
                               key={listing.id}
-                              nft={{ ...listing.nft, id: listing.nft.id || listing.nftId, collectionName: listing.nft?.collectionName || listing.nft?.collection, price: listing.price, rentalPrice: listing.rentalPrice }}
+                              nft={{ ...listing.nft, id: listing.nft?.id || listing.nftId, collectionName: listing.nft?.collectionName || listing.nft?.collection, price: listing.pricePerDay || listing.price, rentalPrice: listing.pricePerDay || listing.rentalPrice }}
                               status={['LOCAL_DRAFT', 'PENDING_CREATE', 'PENDING_CANCEL', 'PENDING'].includes(listing.status) ? 'published_pending' : (listing.status === 'RENTED' ? 'rented' : 'listing')}
                               isOwner={true}
                               onAction={handleAction}

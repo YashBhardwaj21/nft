@@ -45,49 +45,52 @@ export class Projector {
     }
 
     private async processNextPending() {
-        const session = await mongoose.startSession();
-        session.startTransaction();
-
         try {
             const event = await EventModel.findOne({ status: 'pending' })
-                .sort({ blockNumber: 1, logIndex: 1 })
-                .session(session);
+                .sort({ blockNumber: 1, logIndex: 1 });
 
             if (!event) {
-                await session.abortTransaction();
+                // No pending events — sleep longer to avoid tight-looping
+                await new Promise(r => setTimeout(r, 4000));
                 return;
             }
 
-            await this.applyEvent(event, session);
+            try {
+                await this.applyEvent(event);
 
-            event.status = 'processed';
-            event.updatedAt = new Date();
-            await event.save({ session });
-
-            await session.commitTransaction();
+                event.status = 'processed';
+                event.updatedAt = new Date();
+                await event.save();
+            } catch (err: any) {
+                // Mark event as failed so it doesn't block the queue forever
+                event.retries = (event.retries || 0) + 1;
+                if (event.retries >= 5) {
+                    event.status = 'failed';
+                    console.error(`[Projector] Event permanently failed after ${event.retries} retries: ${err.message}`);
+                }
+                event.updatedAt = new Date();
+                await event.save();
+            }
         } catch (err: any) {
-            await session.abortTransaction();
-            console.error(`[Projector] Critical failure applying event: ${err.message}`);
-        } finally {
-            session.endSession();
+            console.error(`[Projector] Unexpected error: ${err.message}`);
         }
     }
 
-    private async applyEvent(event: any, session: mongoose.ClientSession) {
+    private async applyEvent(event: any) {
         const { eventName, args, txHash, blockNumber, contractAddress } = event;
 
         switch (eventName) {
             case 'NFTMinted':
-                await this.handleNFTMinted(args, txHash, blockNumber, contractAddress, session);
+                await this.handleNFTMinted(args, txHash, blockNumber, contractAddress);
                 break;
             case 'ListingCreated':
-                await this.handleListingCreated(args, txHash, blockNumber, contractAddress, session);
+                await this.handleListingCreated(args, txHash, blockNumber, contractAddress);
                 break;
             case 'Rented':
-                await this.handleRented(args, txHash, blockNumber, session);
+                await this.handleRented(args, txHash, blockNumber);
                 break;
             case 'ListingCancelled':
-                await this.handleListingCancelled(args, session);
+                await this.handleListingCancelled(args);
                 break;
             default:
                 console.log(`[Projector] Skipping unhandled event: ${eventName}`);
@@ -98,23 +101,21 @@ export class Projector {
      * SELF-HEALING IDEMPOTENT UPDATE
      * Ensures we don't crash on duplicate index pollution from legacy runs.
      */
-    private async safeUpdateNFT(filter: any, update: any, session: mongoose.ClientSession) {
+    private async safeUpdateNFT(filter: any, update: any) {
         try {
-            await NFTModel.findOneAndUpdate(filter, update, { session, upsert: true });
+            await NFTModel.findOneAndUpdate(filter, update, { upsert: true });
         } catch (err: any) {
             if (err.code === 11000) {
-                // Conflict detected (likely tokenAddress/tokenId index mismatch with filter)
-                // In Chain-First architecture, we overwrite based on the authoritative identity.
                 const fallbackFilter = {
                     tokenAddress: (update.$set.tokenAddress || filter.tokenAddress).toLowerCase(),
                     tokenId: update.$set.tokenId || filter.tokenId
                 };
-                await NFTModel.updateOne(fallbackFilter, update, { session });
+                await NFTModel.updateOne(fallbackFilter, update);
             } else throw err;
         }
     }
 
-    private async handleNFTMinted(args: any, txHash: string, blockNumber: number, contractAddress: string, session: mongoose.ClientSession) {
+    private async handleNFTMinted(args: any, txHash: string, blockNumber: number, contractAddress: string) {
         const { tokenId, creator, metadataHash } = args;
         if (!creator || !contractAddress) return;
 
@@ -136,19 +137,17 @@ export class Projector {
                     blockNumber,
                     updatedAt: new Date()
                 }
-            },
-            session
+            }
         );
 
         // 2. Draft Enrichment (Hint Only)
         await DraftModel.updateOne(
             { metadataHash, creator: resolvedCreator },
-            { $set: { status: 'MINTED' } },
-            { session }
+            { $set: { status: 'MINTED' } }
         );
     }
 
-    private async handleListingCreated(args: any, txHash: string, blockNumber: number, contractAddress: string, session: mongoose.ClientSession) {
+    private async handleListingCreated(args: any, txHash: string, blockNumber: number, contractAddress: string) {
         const { onChainListingId, seller, tokenAddress, tokenId, pricePerDay, minDuration, maxDuration, metadataHash } = args;
         if (!tokenAddress || !seller || !tokenId) return;
 
@@ -160,7 +159,7 @@ export class Projector {
         const nft = await NFTModel.findOne({
             tokenAddress: resolvedTokenAddress,
             tokenId: resolvedTokenId
-        }).session(session);
+        });
 
         if (!nft || (nft.owner !== resolvedSeller)) {
             console.warn(`[Projector] Listing ${onChainListingId} rejected: Seller ${resolvedSeller} does not own NFT ${resolvedTokenId}`);
@@ -172,7 +171,7 @@ export class Projector {
             { onChainListingId: Number(onChainListingId) },
             {
                 $set: {
-                    sellerAddress: resolvedSeller, // OWNERSHIP SNAPSHOT
+                    sellerAddress: resolvedSeller,
                     tokenAddress: resolvedTokenAddress,
                     tokenId: resolvedTokenId,
                     pricePerDay: pricePerDay?.toString(),
@@ -185,17 +184,17 @@ export class Projector {
                     confirmedAt: new Date()
                 }
             },
-            { session, upsert: true }
+            { upsert: true }
         );
     }
 
-    private async handleRented(args: any, txHash: string, blockNumber: number, session: mongoose.ClientSession) {
+    private async handleRented(args: any, txHash: string, blockNumber: number) {
         const { onChainListingId, renter, expires, totalPrice } = args;
 
         const listing = await ListingModel.findOneAndUpdate(
             { onChainListingId: Number(onChainListingId) },
             { $set: { status: 'RENTED' } },
-            { session, new: true }
+            { new: true }
         );
 
         if (!listing) return;
@@ -217,7 +216,7 @@ export class Projector {
                     updatedAt: new Date()
                 }
             },
-            { session, upsert: true }
+            { upsert: true }
         );
 
         await NFTModel.updateOne(
@@ -228,17 +227,15 @@ export class Projector {
                     expiresAt: new Date(Number(expires) * 1000),
                     updatedAt: new Date()
                 }
-            },
-            { session }
+            }
         );
     }
 
-    private async handleListingCancelled(args: any, session: mongoose.ClientSession) {
+    private async handleListingCancelled(args: any) {
         const { onChainListingId } = args;
         await ListingModel.updateOne(
             { onChainListingId: Number(onChainListingId) },
-            { $set: { status: 'CANCELLED' } },
-            { session }
+            { $set: { status: 'CANCELLED' } }
         );
     }
 }

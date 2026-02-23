@@ -221,11 +221,14 @@ const Index = () => {
             <div className="text-center text-gray-400 py-10">No trending items right now.</div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-              {trendingNFTs.slice(0, 3).map((item: any) => (
-                <div key={item.id || item._id} className="transform hover:translate-y-[-10px] transition-transform duration-300">
-                  <NFTCard nft={{ ...item.nft, price: item.price }} status="listing" />
-                </div>
-              ))}
+              {trendingNFTs.slice(0, 3).map((item: any) => {
+                if (!item.nft) return null;
+                return (
+                  <div key={item.id || item._id} className="transform hover:translate-y-[-10px] transition-transform duration-300">
+                    <NFTCard nft={{ ...item.nft, price: item.pricePerDay || item.price }} status="listing" />
+                  </div>
+                );
+              })}
             </div>
           )}
         </section>

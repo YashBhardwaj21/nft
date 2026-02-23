@@ -116,8 +116,9 @@ const RentListingModal = ({ isOpen, onClose, nft, onSuccess }: RentListingModalP
                 duration: parseInt(duration),
             });
 
-            const newDraftId = draftRes.data.data.draftId;
-            const newMetadataHash = draftRes.data.data.metadataHash;
+            const listing = draftRes.data.data;
+            const newDraftId = listing.draftId || listing.id || listing._id;
+            const newMetadataHash = listing.metadataHash;
 
 
             setStep('approving');

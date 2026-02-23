@@ -1,7 +1,27 @@
 import { Request, Response } from 'express';
 import { ListingModel } from '../models/Listing.js';
 import { NFTModel } from '../models/NFT.js';
+import { RentalModel } from '../models/Rental.js';
+import { UserModel } from '../models/User.js';
 import crypto from 'crypto';
+import { ethers } from 'ethers';
+import fs from 'fs';
+import path from 'path';
+
+// Load marketplace ABI for tx generation
+const ABI_PATH = path.join(process.cwd(), '..', 'shared', 'DAOMarketplaceMarket.json');
+let CANCEL_ABI: any[] = [];
+let CANCEL_MARKETPLACE_ADDRESS = process.env.MARKETPLACE_ADDRESS || '';
+
+if (fs.existsSync(ABI_PATH)) {
+    try {
+        const data = JSON.parse(fs.readFileSync(ABI_PATH, 'utf8'));
+        CANCEL_ABI = data.abi || [];
+        if (!CANCEL_MARKETPLACE_ADDRESS && data.address) CANCEL_MARKETPLACE_ADDRESS = data.address;
+    } catch (e) {
+        console.warn('marketplace.controller: Failed to load shared ABI:', e);
+    }
+}
 
 // Pagination helper
 function safePaginate(query: any) {
@@ -75,27 +95,33 @@ export const getAllListings = async (req: Request, res: Response) => {
  */
 export const createListingDraft = async (req: Request, res: Response) => {
     try {
-        const { tokenAddress, tokenId, price, duration } = req.body;
+        const { nftId, tokenAddress, tokenId, price, duration } = req.body;
         const userId = ((req as any).user?.id || '').toLowerCase();
 
         if (!userId) return res.status(401).json({ error: 'Sign in required' });
 
-        const resolvedTokenAddress = tokenAddress.toLowerCase();
-        const resolvedTokenId = tokenId.toString();
+        let nft: any = null;
 
-        // 1. Verify Ownership from indexed facts (Projector's truth)
-        const nft = await NFTModel.findOne({
-            tokenAddress: resolvedTokenAddress,
-            tokenId: resolvedTokenId
-        });
+        // Resolve via tokenAddress+tokenId if provided, otherwise lookup by nftId
+        if (tokenAddress && tokenId) {
+            nft = await NFTModel.findOne({
+                tokenAddress: tokenAddress.toLowerCase(),
+                tokenId: tokenId.toString()
+            });
+        } else if (nftId) {
+            // nftId can be the compound id ("contractAddress-tokenId") or a Mongo _id
+            nft = await NFTModel.findOne({
+                $or: [{ id: nftId }, { _id: nftId }]
+            });
+        }
 
         if (!nft) return res.status(404).json({ error: 'NFT not indexed yet. Please wait for sync.' });
         if (nft.owner !== userId) return res.status(403).json({ error: 'Not authorized. You do not own this NFT.' });
 
         // 2. Prevent duplicate active listings
         const existingListing = await ListingModel.findOne({
-            tokenAddress: resolvedTokenAddress,
-            tokenId: resolvedTokenId,
+            tokenAddress: nft.tokenAddress,
+            tokenId: nft.tokenId,
             status: { $in: ['LOCAL_DRAFT', 'PENDING_CREATE', 'ACTIVE'] }
         });
 
@@ -107,8 +133,8 @@ export const createListingDraft = async (req: Request, res: Response) => {
 
         const newListing = await ListingModel.create({
             id: draftId,
-            tokenAddress: resolvedTokenAddress,
-            tokenId: resolvedTokenId,
+            tokenAddress: nft.tokenAddress,
+            tokenId: nft.tokenId,
             sellerAddress: userId, // OWNERSHIP SNAPSHOT
             pricePerDay: price.toString(),
             duration: Number(duration),
@@ -182,8 +208,22 @@ export const deleteDraftListing = async (req: Request, res: Response) => {
 export const generateCancelTx = async (req: Request, res: Response) => {
     try {
         const { onChainListingId } = req.body;
-        // Basic payload generation mockup
-        res.status(200).json({ status: 'success', data: { onChainListingId, action: 'cancel' } });
+
+        if (!CANCEL_MARKETPLACE_ADDRESS || CANCEL_ABI.length === 0) {
+            return res.status(503).json({ status: 'error', error: 'Marketplace contract not configured' });
+        }
+
+        const iface = new ethers.Interface(CANCEL_ABI);
+        const data = iface.encodeFunctionData('cancelListing', [Number(onChainListingId)]);
+
+        res.status(200).json({
+            status: 'success',
+            data: {
+                to: CANCEL_MARKETPLACE_ADDRESS,
+                data,
+                value: '0'
+            }
+        });
     } catch (error: any) {
         res.status(500).json({ error: error.message });
     }
@@ -193,15 +233,135 @@ export const generateCancelTx = async (req: Request, res: Response) => {
  * Search/Filter Listings
  */
 export const searchListings = async (req: Request, res: Response) => {
-    return getAllListings(req, res); // Reuse optimized aggregate
+    try {
+        const { page, limit, skip } = safePaginate(req.query);
+        const { query, sort } = req.query;
+
+        const filter: any = { status: 'ACTIVE' };
+
+        // Parse sort option
+        let sortStage: Record<string, 1 | -1> = { createdAt: -1 };
+        if (sort === 'price_low') sortStage = { pricePerDay: 1 };
+        else if (sort === 'price_high') sortStage = { pricePerDay: -1 };
+        else if (sort === 'newest') sortStage = { createdAt: -1 };
+        else if (sort === 'oldest') sortStage = { createdAt: 1 };
+
+        // Build pipeline — lookup NFT first so we can filter by NFT name
+        const pipeline: any[] = [
+            { $match: filter },
+            {
+                $lookup: {
+                    from: 'nfts',
+                    let: { addr: '$tokenAddress', tid: '$tokenId' },
+                    pipeline: [
+                        {
+                            $match: {
+                                $expr: {
+                                    $and: [
+                                        { $eq: [{ $toLower: '$tokenAddress' }, { $toLower: '$$addr' }] },
+                                        { $eq: [{ $toString: '$tokenId' }, { $toString: '$$tid' }] }
+                                    ]
+                                }
+                            }
+                        }
+                    ],
+                    as: 'nft'
+                }
+            },
+            { $unwind: { path: '$nft', preserveNullAndEmptyArrays: true } },
+        ];
+
+        // Text search on NFT name (if query provided)
+        if (query && typeof query === 'string' && query.trim()) {
+            const safeQuery = query.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            pipeline.push({
+                $match: { 'nft.name': { $regex: safeQuery, $options: 'i' } }
+            });
+        }
+
+        // Add computed fields
+        pipeline.push({
+            $addFields: {
+                id: { $ifNull: ['$id', { $toString: '$_id' }] },
+                'nft.isListed': true,
+                'nft.isRented': {
+                    $and: [
+                        { $ne: ['$nft.expiresAt', null] },
+                        { $gt: ['$nft.expiresAt', new Date()] }
+                    ]
+                }
+            }
+        });
+
+        // Get total count before pagination (using $facet)
+        const result = await ListingModel.aggregate([
+            ...pipeline,
+            {
+                $facet: {
+                    metadata: [{ $count: 'total' }],
+                    data: [
+                        { $sort: sortStage },
+                        { $skip: skip },
+                        { $limit: limit }
+                    ]
+                }
+            }
+        ]);
+
+        const total = result[0]?.metadata[0]?.total || 0;
+        const listings = result[0]?.data || [];
+
+        res.status(200).json({
+            status: 'success',
+            data: listings,
+            pagination: { page, limit, total, totalPages: Math.ceil(total / limit) }
+        });
+    } catch (error: any) {
+        res.status(500).json({ status: 'error', error: error.message });
+    }
 };
 
 /**
- * Get Trending NFTs
+ * Get Trending NFTs — returns listing-shaped objects with nested .nft sub-doc
  */
 export const getTrendingNFTs = async (req: Request, res: Response) => {
     try {
-        const trending = await NFTModel.find().sort({ views: -1 }).limit(10).lean();
+        const pipeline: any[] = [
+            { $match: { status: 'ACTIVE' } },
+            {
+                $lookup: {
+                    from: 'nfts',
+                    let: { addr: '$tokenAddress', tid: '$tokenId' },
+                    pipeline: [
+                        {
+                            $match: {
+                                $expr: {
+                                    $and: [
+                                        { $eq: [{ $toLower: '$tokenAddress' }, { $toLower: '$$addr' }] },
+                                        { $eq: [{ $toString: '$tokenId' }, { $toString: '$$tid' }] }
+                                    ]
+                                }
+                            }
+                        }
+                    ],
+                    as: 'nft'
+                }
+            },
+            { $unwind: { path: '$nft', preserveNullAndEmptyArrays: true } },
+            {
+                $addFields: {
+                    id: { $ifNull: ['$id', { $toString: '$_id' }] },
+                    // Sort by NFT views (trending metric), falling back to listing views
+                    _sortViews: { $ifNull: ['$nft.views', '$views'] },
+                    'nft.isListed': true
+                }
+            },
+            { $sort: { _sortViews: -1, createdAt: -1 } },
+            { $limit: 10 },
+            { $project: { _sortViews: 0 } }
+        ];
+
+        const trending = await ListingModel.aggregate(pipeline);
         res.status(200).json({ status: 'success', data: trending });
     } catch (error: any) {
         res.status(500).json({ error: error.message });
@@ -209,13 +369,43 @@ export const getTrendingNFTs = async (req: Request, res: Response) => {
 };
 
 /**
- * Get Marketplace Stats
+ * Get Marketplace Stats — includes volumeTraded and activeUsers
  */
 export const getMarketplaceStats = async (req: Request, res: Response) => {
     try {
-        const totalNFTs = await NFTModel.countDocuments();
-        const totalListings = await ListingModel.countDocuments({ status: 'ACTIVE' });
-        res.status(200).json({ status: 'success', data: { totalNFTs, totalListings } });
+        const [totalNFTs, totalListings, totalRentals] = await Promise.all([
+            NFTModel.countDocuments(),
+            ListingModel.countDocuments({ status: 'ACTIVE' }),
+            RentalModel.countDocuments()
+        ]);
+
+        // Volume traded — sum of all rental totalPrice values (stored as wei strings)
+        const volumeAgg = await RentalModel.aggregate([
+            {
+                $group: {
+                    _id: null,
+                    totalWei: {
+                        $sum: { $toDouble: { $ifNull: ['$totalPrice', '0'] } }
+                    }
+                }
+            }
+        ]);
+        const volumeTradedWei = volumeAgg[0]?.totalWei || 0;
+        // Convert from wei to ETH (approximate — good enough for stats display)
+        const volumeTraded = (volumeTradedWei / 1e18).toFixed(4);
+
+        // Active users — distinct wallet addresses that have ever rented or listed
+        const [distinctRenters, distinctOwners] = await Promise.all([
+            RentalModel.distinct('renter'),
+            ListingModel.distinct('sellerAddress')
+        ]);
+        const uniqueAddresses = new Set([...distinctRenters, ...distinctOwners]);
+        const activeUsers = uniqueAddresses.size;
+
+        res.status(200).json({
+            status: 'success',
+            data: { totalNFTs, totalListings, totalRentals, volumeTraded, activeUsers }
+        });
     } catch (error: any) {
         res.status(500).json({ error: error.message });
     }
