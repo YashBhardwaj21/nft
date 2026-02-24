@@ -10,4 +10,15 @@ export default defineConfig({
             "@": path.resolve(__dirname, "./src"),
         },
     },
+    server: {
+        host: true,
+        allowedHosts: true,
+        proxy: {
+            // Forward /api requests to backend — works seamlessly with ngrok
+            '/api': {
+                target: 'http://localhost:5000',
+                changeOrigin: true,
+            },
+        },
+    }
 });

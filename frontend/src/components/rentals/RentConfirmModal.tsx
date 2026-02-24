@@ -37,7 +37,7 @@ const RentConfirmModal = ({ isOpen, onClose, nft, onSuccess }: RentConfirmModalP
         }
     }, [isConfirmed, onSuccess, onClose]);
 
-    const pricePerDay = Number(nft?.rentalPrice || (nft as any).pricePerDay) || 0;
+    const pricePerDay = Number((nft as any)?.pricePerDay || nft?.rentalPrice || (nft as any)?.price) || 0;
     const totalCost = parseFloat(duration) * pricePerDay;
 
     const handleRent = async () => {
@@ -48,8 +48,11 @@ const RentConfirmModal = ({ isOpen, onClose, nft, onSuccess }: RentConfirmModalP
         setIsLoading(true);
         try {
             // 1. Get Transaction Data from Backend
+            // Pass all possible identifiers so the backend can resolve the listing
             const response = await api.post(`/rentals/rent`, {
-                nftId: nft.id, // We modified backend to use nftId to fetch the correct active listing
+                onChainListingId: (nft as any).onChainListingId,
+                listingId: (nft as any).listingId,
+                nftId: nft.id,
                 days: parseInt(duration)
             });
 
@@ -67,8 +70,10 @@ const RentConfirmModal = ({ isOpen, onClose, nft, onSuccess }: RentConfirmModalP
 
             // 3. Notify Backend
             await api.post(`/rentals/notify`, {
+                onChainListingId: (nft as any).onChainListingId,
                 nftId: nft.id,
-                txHash: hash
+                txHash: hash,
+                value: txData.value
             }, { headers: { 'Idempotency-Key': crypto.randomUUID() } });
 
         } catch (error: any) {

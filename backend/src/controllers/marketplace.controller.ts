@@ -36,7 +36,7 @@ function safePaginate(query: any) {
 export const getAllListings = async (req: Request, res: Response) => {
     try {
         const { page, limit, skip } = safePaginate(req.query);
-        const filter: any = { status: 'ACTIVE' };
+        const filter: any = { status: { $in: ['ACTIVE', 'PENDING_CREATE'] } };
 
         const total = await ListingModel.countDocuments(filter);
         const pipeline: any[] = [
@@ -109,14 +109,25 @@ export const createListingDraft = async (req: Request, res: Response) => {
                 tokenId: tokenId.toString()
             });
         } else if (nftId) {
-            // nftId can be the compound id ("contractAddress-tokenId") or a Mongo _id
-            nft = await NFTModel.findOne({
-                $or: [{ id: nftId }, { _id: nftId }]
-            });
+            // First try compound id, then try as Mongo _id
+            nft = await NFTModel.findOne({ id: nftId });
+            if (!nft) {
+                try {
+                    nft = await NFTModel.findById(nftId);
+                } catch (castErr) {
+                    // nftId is not a valid ObjectId — that's fine, we already tried the compound id
+                }
+            }
         }
 
-        if (!nft) return res.status(404).json({ error: 'NFT not indexed yet. Please wait for sync.' });
-        if (nft.owner !== userId) return res.status(403).json({ error: 'Not authorized. You do not own this NFT.' });
+        if (!nft) {
+            console.error(`[createListingDraft] NFT not found for nftId=${nftId}, tokenAddress=${tokenAddress}, tokenId=${tokenId}`);
+            return res.status(404).json({ error: 'NFT not indexed yet. Please wait for sync.' });
+        }
+        if (nft.owner !== userId) {
+            console.error(`[createListingDraft] Ownership mismatch: nft.owner=${nft.owner} userId=${userId}`);
+            return res.status(403).json({ error: 'Not authorized. You do not own this NFT.' });
+        }
 
         // 2. Prevent duplicate active listings
         const existingListing = await ListingModel.findOne({
@@ -144,6 +155,7 @@ export const createListingDraft = async (req: Request, res: Response) => {
 
         res.status(201).json({ status: 'success', data: newListing });
     } catch (error: any) {
+        console.error('[createListingDraft] Error:', error.message, error.stack);
         res.status(500).json({ status: 'error', error: error.message });
     }
 };
@@ -160,7 +172,7 @@ export const notifyListingTx = async (req: Request, res: Response) => {
         if (!listing) return res.status(404).json({ error: 'Draft not found' });
         if (listing.sellerAddress !== userId) return res.status(403).json({ error: 'Not authorized' });
 
-        listing.status = 'PENDING_CREATE';
+        listing.status = 'ACTIVE';
         listing.txHash = txHash;
         await listing.save();
 
@@ -237,7 +249,7 @@ export const searchListings = async (req: Request, res: Response) => {
         const { page, limit, skip } = safePaginate(req.query);
         const { query, sort } = req.query;
 
-        const filter: any = { status: 'ACTIVE' };
+        const filter: any = { status: { $in: ['ACTIVE', 'PENDING_CREATE'] } };
 
         // Parse sort option
         let sortStage: Record<string, 1 | -1> = { createdAt: -1 };
@@ -327,7 +339,7 @@ export const searchListings = async (req: Request, res: Response) => {
 export const getTrendingNFTs = async (req: Request, res: Response) => {
     try {
         const pipeline: any[] = [
-            { $match: { status: 'ACTIVE' } },
+            { $match: { status: { $in: ['ACTIVE', 'PENDING_CREATE'] } } },
             {
                 $lookup: {
                     from: 'nfts',

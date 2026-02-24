@@ -27,7 +27,7 @@ if (fs.existsSync(ABI_PATH)) {
  */
 export const rentFromListing = async (req: Request, res: Response) => {
     try {
-        const { onChainListingId, listingId, days } = req.body;
+        const { onChainListingId, listingId, nftId, days } = req.body;
         const renterWallet = (req as any).user?.id;
         if (!renterWallet) return res.status(401).json({ status: 'error', error: 'Not authenticated' });
 
@@ -41,10 +41,22 @@ export const rentFromListing = async (req: Request, res: Response) => {
             listing = await ListingModel.findOne({ onChainListingId: Number(onChainListingId) });
         } else if (listingId) {
             listing = await ListingModel.findOne({ id: listingId });
+        } else if (nftId) {
+            // Resolve via NFT → find its active listing
+            const nft = await NFTModel.findOne({
+                $or: [{ id: nftId }, { _id: nftId }]
+            });
+            if (nft && nft.tokenAddress && nft.tokenId) {
+                listing = await ListingModel.findOne({
+                    tokenAddress: nft.tokenAddress!.toLowerCase(),
+                    tokenId: nft.tokenId!.toString(),
+                    status: { $in: ['ACTIVE', 'PENDING_CREATE'] }
+                });
+            }
         }
 
         if (!listing) return res.status(404).json({ status: 'error', error: 'Listing not found' });
-        if (listing.status !== 'ACTIVE') {
+        if (!['ACTIVE', 'PENDING_CREATE'].includes(listing.status)) {
             return res.status(400).json({ status: 'error', error: `Listing is not active (${listing.status})` });
         }
 
@@ -85,7 +97,7 @@ export const notifyRentalTx = async (req: Request, res: Response) => {
         const idempotencyKey = req.headers['idempotency-key'] as string;
         if (!idempotencyKey) return res.status(400).json({ error: 'Idempotency-Key required' });
 
-        const { onChainListingId, txHash, value } = req.body;
+        const { onChainListingId, nftId, txHash, value } = req.body;
         const renterWallet = (req as any).user?.id?.toLowerCase();
         if (!renterWallet) return res.status(401).json({ error: 'Not authenticated' });
 
@@ -97,7 +109,22 @@ export const notifyRentalTx = async (req: Request, res: Response) => {
             throw dupErr;
         }
 
-        const listing = await ListingModel.findOne({ onChainListingId: Number(onChainListingId) });
+        // Resolve listing by onChainListingId or by nftId
+        let listing = null;
+        if (onChainListingId !== undefined && onChainListingId !== null) {
+            listing = await ListingModel.findOne({ onChainListingId: Number(onChainListingId) });
+        } else if (nftId) {
+            const nft = await NFTModel.findOne({
+                $or: [{ id: nftId }, { _id: nftId }]
+            });
+            if (nft && nft.tokenAddress && nft.tokenId) {
+                listing = await ListingModel.findOne({
+                    tokenAddress: nft.tokenAddress!.toLowerCase(),
+                    tokenId: nft.tokenId!.toString(),
+                    status: { $in: ['ACTIVE', 'PENDING_CREATE'] }
+                });
+            }
+        }
 
         const rental = await RentalModel.findOneAndUpdate(
             { txHash },

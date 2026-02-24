@@ -21,7 +21,8 @@ async function main() {
     await mongoose.connect(uri);
     console.log('✅ Connected to MongoDB');
 
-    const provider = new ethers.JsonRpcProvider(process.env.SEPOLIA_RPC);
+    const rpcUrl = process.env.SEPOLIA_RPC || 'https://ethereum-sepolia-rpc.publicnode.com';
+    const provider = new ethers.JsonRpcProvider(rpcUrl, undefined, { batchMaxCount: 1 });
     const latestBlock = await provider.getBlockNumber();
     const startBlock = Math.max(0, latestBlock - 50000); // Only going back ~1 week
 

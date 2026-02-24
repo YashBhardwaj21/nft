@@ -2,13 +2,13 @@ import { ethers } from 'ethers';
 import { keccak256 } from '../crypto/keccak256.js';
 import { recoverAddress, publicKeyToAddress } from '../crypto/ecdsa.js';
 
-const SEPOLIA_RPC = process.env.SEPOLIA_RPC || "https://rpc.sepolia.org";
+const SEPOLIA_RPC = process.env.SEPOLIA_RPC || "https://ethereum-sepolia-rpc.publicnode.com";
 
 export class TraceService {
     private provider: ethers.JsonRpcProvider;
 
     constructor() {
-        this.provider = new ethers.JsonRpcProvider(SEPOLIA_RPC);
+        this.provider = new ethers.JsonRpcProvider(SEPOLIA_RPC, undefined, { batchMaxCount: 1 });
     }
 
     /**
@@ -25,13 +25,6 @@ export class TraceService {
         if (!tx) throw new Error("Transaction not found");
 
         // 2. Reconstruct Signing Hash (using ethers to handle RLP complexity)
-        // ethers v6 Transaction object has .unsignedHash (v5 had .msgHash?)
-        // Actually, let's use ethers to get the signature components and the hash.
-
-        // In ethers v6, `tx.unsignedHash` is not directly public on the Response object.
-        // We might need to reconstruct it. 
-        // However, `Transaction.from(tx).unsignedHash` works.
-
         const txObj = ethers.Transaction.from(tx);
         const unsignedHash = txObj.unsignedHash; // The hash that was signed
 

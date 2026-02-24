@@ -1,4 +1,4 @@
-// backend/src/services/chainListener.ts
+﻿// backend/src/services/chainListener.ts
 import { ethers } from 'ethers';
 import { EventModel } from '../models/Event.js';
 import { SyncStateModel } from '../models/SyncState.js';
@@ -18,25 +18,30 @@ interface QueuedEvent {
     args: any;
 }
 
+// Delay helper for rate limiting (Tatum free plan: 3 req/s)
+const rpcDelay = (ms = 500) => new Promise(r => setTimeout(r, ms));
+
 export class ChainListener {
     private provider!: ethers.Provider;
     private nftContract: ethers.Contract | null = null;
     private marketContract: ethers.Contract | null = null;
     private isRunning = false;
     private lastProcessedBlock = 0;
+    private lastRealtimeBlock = 0;
+    private pollTimer: ReturnType<typeof setInterval> | null = null;
 
     constructor() { }
 
     private safeLoadAbi(filePath: string) {
         if (!fs.existsSync(filePath)) {
-            console.warn(`⚠️  ABI file missing: ${filePath}`);
+            console.warn(`âš ï¸  ABI file missing: ${filePath}`);
             return null;
         }
         try {
             const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
             return data.abi || data;
         } catch (err) {
-            console.error(`❌ Failed to parse ABI ${filePath}:`, err);
+            console.error(`âŒ Failed to parse ABI ${filePath}:`, err);
             return null;
         }
     }
@@ -51,12 +56,12 @@ export class ChainListener {
         const BATCH_SIZE = parseInt(process.env.BACKFILL_BATCH_SIZE || '10', 10);
 
         console.log(`[ChainListener] Config Loaded: CONFIRMATIONS_N=${CONFIRMATIONS_N}, REORG_GUARD=${REORG_GUARD}, BATCH_SIZE=${BATCH_SIZE}`);
-        console.log(`🚀 Starting Chain-First Listener (Confirmations required: ${CONFIRMATIONS_N})...`);
+        console.log(`ðŸš€ Starting Chain-First Listener (Confirmations required: ${CONFIRMATIONS_N})...`);
 
         try {
             const contractsReady = await this.initContracts();
             if (!contractsReady) {
-                console.warn('⚠️  Chain Listener starting in DEGRADED mode (contracts not initialized)');
+                console.warn('âš ï¸  Chain Listener starting in DEGRADED mode (contracts not initialized)');
                 (globalThis as any).ABIS_LOADED = false;
                 return;
             }
@@ -64,9 +69,9 @@ export class ChainListener {
             (globalThis as any).ABIS_LOADED = true;
             await this.loadState();
             await this.backfillEvents();
-            this.subscribeToEvents();
+            await this.startRealtimePolling();
         } catch (error) {
-            console.error('❌ Chain Listener initialization failed:', error);
+            console.error('âŒ Chain Listener initialization failed:', error);
             this.isRunning = false;
             setTimeout(() => this.start(provider), 10000);
         }
@@ -77,7 +82,7 @@ export class ChainListener {
         const marketAddress = process.env.MARKETPLACE_ADDRESS;
 
         if (!nftAddress || !marketAddress) {
-            console.warn('⚠️  CONTRACT_ADDRESS or MARKETPLACE_ADDRESS missing from .env');
+            console.warn('âš ï¸  CONTRACT_ADDRESS or MARKETPLACE_ADDRESS missing from .env');
             return false;
         }
 
@@ -105,7 +110,7 @@ export class ChainListener {
                 this.lastProcessedBlock = Math.max(0, currentBlock - 100);
                 await SyncStateModel.create({ id: 'market_listener', lastProcessedBlock: this.lastProcessedBlock });
             }
-            console.log(`📌 Starting sync from block ${this.lastProcessedBlock}`);
+            console.log(`ðŸ“Œ Starting sync from block ${this.lastProcessedBlock}`);
         } catch (error) {
             console.error('Failed to load state:', error);
             const currentBlock = await this.provider.getBlockNumber();
@@ -128,10 +133,10 @@ export class ChainListener {
         }
     }
 
-    // ── Backfill ─────────────────────────────────────────────────────────────
+    // â”€â”€ Backfill â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     private async backfillEvents() {
-        console.log(`⏳ Backfilling events from block ${this.lastProcessedBlock}...`);
+        console.log(`â³ Backfilling events from block ${this.lastProcessedBlock}...`);
         const latestBlock = await this.provider.getBlockNumber();
         const BATCH_SIZE = parseInt(process.env.BACKFILL_BATCH_SIZE || '10', 10);
         const MAX_RETRIES = parseInt(process.env.BACKFILL_MAX_RETRIES || '3', 10);
@@ -158,20 +163,20 @@ export class ChainListener {
             }
 
             if (!success) {
-                // Do NOT advance state — we'll retry from here on next restart
-                console.error(`[Backfill] ⛔ Permanently failed batch ${from}-${to} after ${MAX_RETRIES} retries. Stopping backfill. Last safe block: ${this.lastProcessedBlock}`);
+                // Do NOT advance state â€” we'll retry from here on next restart
+                console.error(`[Backfill] â›” Permanently failed batch ${from}-${to} after ${MAX_RETRIES} retries. Stopping backfill. Last safe block: ${this.lastProcessedBlock}`);
                 return;
             }
 
             if (from % 10000 === 0) console.log(`[Backfill] Progress: block ${from}/${latestBlock}`);
         }
 
-        console.log('✅ Backfill complete');
+        console.log('âœ… Backfill complete');
     }
 
     /**
      * Process all four event types in a single block range.
-     * Throws on any failure — caller handles retry logic.
+     * Throws on any failure â€” caller handles retry logic.
      */
     private async processBatch(from: number, to: number) {
         if (!this.nftContract || !this.marketContract) return;
@@ -197,6 +202,8 @@ export class ChainListener {
                 });
             }
         }
+
+        await rpcDelay(); // Rate limit: wait before next RPC call
 
         // ListingCreated events
         const listFilter = this.marketContract.filters.ListingCreated?.();
@@ -224,6 +231,8 @@ export class ChainListener {
             }
         }
 
+        await rpcDelay(); // Rate limit: wait before next RPC call
+
         // Rented events
         const rentFilter = this.marketContract.filters.Rented?.();
         if (rentFilter) {
@@ -248,6 +257,8 @@ export class ChainListener {
             }
         }
 
+        await rpcDelay(); // Rate limit: wait before next RPC call
+
         // ListingCancelled events
         const cancelFilter = this.marketContract.filters.ListingCancelled?.();
         if (cancelFilter) {
@@ -270,93 +281,59 @@ export class ChainListener {
         }
     }
 
-    // ── Real-time subscriptions ───────────────────────────────────────────────
+    // â”€â”€ Real-time subscriptions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-    private subscribeToEvents() {
+    // Manual timer-based polling to avoid overwhelming free-tier RPCs.
+    // Uses setInterval instead of provider.on('block') to control request rate.
+    private async startRealtimePolling() {
         if (!this.nftContract || !this.marketContract) return;
 
-        // Normalize logIndex from real-time event objects (ethers v6 uses .index not .logIndex)
-        const getLogIndex = (event: any): number => {
-            if (typeof event?.index === 'number') return event.index;
-            if (typeof event?.logIndex === 'number') return event.logIndex;
-            return 0;
+        // Default 30s for free-tier RPC (3 req/s limit with 4 event queries + getBlockNumber per tick)
+        const pollMs = parseInt(process.env.REALTIME_POLL_INTERVAL_MS || '30000', 10);
+        const MAX_RETRIES = parseInt(process.env.BACKFILL_MAX_RETRIES || '3', 10);
+
+        this.lastRealtimeBlock = this.lastProcessedBlock;
+
+        const pollOnce = async () => {
+            if (!this.isRunning) return;
+
+            try {
+                const currentBlock = await this.provider.getBlockNumber();
+                if (currentBlock <= this.lastRealtimeBlock) return;
+
+                const from = this.lastRealtimeBlock + 1;
+                const to = currentBlock;
+                let retries = 0;
+
+                while (retries <= MAX_RETRIES) {
+                    try {
+                        await rpcDelay(); // small pause before batch
+                        await this.processBatch(from, to);
+                        await this.saveState(to);
+                        this.lastRealtimeBlock = to;
+                        return;
+                    } catch (err: any) {
+                        retries++;
+                        const delay = Math.min(2000 * Math.pow(2, retries), 60000);
+                        console.warn(`[Realtime] Blocks ${from}-${to} failed (attempt ${retries}/${MAX_RETRIES}): ${err.message}. Retrying in ${delay}ms...`);
+                        if (retries > MAX_RETRIES) break;
+                        await new Promise(r => setTimeout(r, delay));
+                    }
+                }
+
+                console.error(`[Realtime] Failed blocks ${from}-${to}. Will retry on next tick.`);
+            } catch (err: any) {
+                console.warn(`[Realtime] getBlockNumber failed: ${err.message}. Will retry on next tick.`);
+            }
         };
 
-        this.nftContract.on('NFTMinted', (tokenId, creator, tokenURI, metadataHash, event) => {
-            if (!event?.transactionHash) return;
-            this.enqueueEvent({
-                eventName: 'NFTMinted',
-                blockNumber: event.blockNumber,
-                logIndex: getLogIndex(event),
-                txHash: event.transactionHash,
-                contractAddress: String(this.nftContract!.target),
-                args: { tokenId: tokenId.toString(), creator, tokenURI, metadataHash },
-            });
-        });
-
-        this.marketContract.on('ListingCreated', (...args) => {
-            const event = args[args.length - 1];
-            if (!event?.transactionHash) return;
-            this.enqueueEvent({
-                eventName: 'ListingCreated',
-                blockNumber: event.blockNumber,
-                logIndex: getLogIndex(event),
-                txHash: event.transactionHash,
-                contractAddress: String(this.marketContract!.target),
-                args: {
-                    onChainListingId: args[0].toString(),
-                    seller: args[1],
-                    tokenAddress: args[2],
-                    tokenId: args[3].toString(),
-                    pricePerDay: args[4].toString(),
-                    minDuration: args[5].toString(),
-                    maxDuration: args[6].toString(),
-                    metadataHash: args[7]
-                },
-            });
-        });
-
-        this.marketContract.on('ListingCancelled', (...args) => {
-            const event = args[args.length - 1];
-            if (!event?.transactionHash) return;
-            this.enqueueEvent({
-                eventName: 'ListingCancelled',
-                blockNumber: event.blockNumber,
-                logIndex: getLogIndex(event),
-                txHash: event.transactionHash,
-                contractAddress: String(this.marketContract!.target),
-                args: { onChainListingId: args[0].toString(), tokenAddress: args[1], tokenId: args[2].toString() },
-            });
-        });
-
-        this.marketContract.on('Rented', (...args) => {
-            const event = args[args.length - 1];
-            if (!event?.transactionHash) return;
-            this.enqueueEvent({
-                eventName: 'Rented',
-                blockNumber: event.blockNumber,
-                logIndex: getLogIndex(event),
-                txHash: event.transactionHash,
-                contractAddress: String(this.marketContract!.target),
-                args: {
-                    onChainListingId: args[0].toString(),
-                    renter: args[1],
-                    tokenAddress: args[2],
-                    tokenId: args[3].toString(),
-                    expires: args[4].toString(),
-                    totalPrice: args[5].toString()
-                },
-            });
-        });
-
-        console.log('👂 Subscribed to real-time contract events');
+        this.pollTimer = setInterval(pollOnce, pollMs);
+        console.log(`Realtime listener started (timer-based polling, interval=${pollMs}ms)`);
     }
-
-    // ── Event ledger upsert (idempotent) ─────────────────────────────────────
 
     private async enqueueEvent(ev: QueuedEvent) {
         if (typeof ev.logIndex !== 'number' || isNaN(ev.logIndex)) {
-            console.warn(`[ChainListener] ⚠️ Event ${ev.txHash} has invalid logIndex=${ev.logIndex}. Skipping.`);
+            console.warn(`[ChainListener] âš ï¸ Event ${ev.txHash} has invalid logIndex=${ev.logIndex}. Skipping.`);
             return;
         }
         try {
@@ -375,7 +352,7 @@ export class ChainListener {
                 { upsert: true }
             );
         } catch (err: any) {
-            // E11000 = duplicate key — benign, event already in ledger
+            // E11000 = duplicate key â€” benign, event already in ledger
             if (err?.code !== 11000) {
                 console.error('[ChainListener] Error enqueueing event:', err);
             }
@@ -384,3 +361,4 @@ export class ChainListener {
 }
 
 export const chainListener = new ChainListener();
+
