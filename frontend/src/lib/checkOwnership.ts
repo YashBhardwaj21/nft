@@ -1,15 +1,8 @@
 import { readContract } from "@wagmi/core";
 import { config } from "../config/wagmi";
 
-const NFT_ABI = [
-    {
-        "inputs": [{ "internalType": "uint256", "name": "tokenId", "type": "uint256" }],
-        "name": "ownerOf",
-        "outputs": [{ "internalType": "address", "name": "", "type": "address" }],
-        "stateMutability": "view",
-        "type": "function"
-    }
-];
+import NFTContractData from '@shared/DAOMarketplaceNFT.json';
+const NFT_ABI = NFTContractData.abi;
 
 export async function verifyOwnership(contractAddress: `0x${string}`, tokenId: bigint, user: `0x${string}`) {
     const owner = await readContract(config as any, {

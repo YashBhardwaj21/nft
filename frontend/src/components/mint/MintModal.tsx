@@ -11,19 +11,8 @@ import api from '@/api/client';
 import { useAuth } from '@/context/AuthContext';
 
 // ABI for mint function
-const MINT_ABI = [
-    {
-        "inputs": [
-            { "internalType": "address", "name": "to", "type": "address" },
-            { "internalType": "string", "name": "uri", "type": "string" },
-            { "internalType": "bytes32", "name": "metadataHash", "type": "bytes32" }
-        ],
-        "name": "mint",
-        "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
-        "stateMutability": "nonpayable",
-        "type": "function"
-    }
-];
+import NFTContractData from '@shared/DAOMarketplaceNFT.json';
+const MINT_ABI = NFTContractData.abi;
 
 interface MintModalProps {
     isOpen: boolean;

@@ -14,35 +14,11 @@ import { config } from "../../config/wagmi";
 import { ensureSepolia } from "../../lib/ensureCorrectNetwork";
 import { verifyOwnership } from "../../lib/checkOwnership";
 
-const MARKETPLACE_ABI = [
-    {
-        "inputs": [
-            { "internalType": "address", "name": "tokenAddress", "type": "address" },
-            { "internalType": "uint256", "name": "tokenId", "type": "uint256" },
-            { "internalType": "uint256", "name": "pricePerDay", "type": "uint256" },
-            { "internalType": "uint64", "name": "minDuration", "type": "uint64" },
-            { "internalType": "uint64", "name": "maxDuration", "type": "uint64" },
-            { "internalType": "bytes32", "name": "metadataHash", "type": "bytes32" }
-        ],
-        "name": "listNFT",
-        "outputs": [],
-        "stateMutability": "nonpayable",
-        "type": "function"
-    }
-];
+import MarketContractData from '@shared/DAOMarketplaceMarket.json';
+import NFTContractData from '@shared/DAOMarketplaceNFT.json';
 
-const NFT_ABI = [
-    {
-        "inputs": [
-            { "internalType": "address", "name": "to", "type": "address" },
-            { "internalType": "uint256", "name": "tokenId", "type": "uint256" }
-        ],
-        "name": "approve",
-        "outputs": [],
-        "stateMutability": "nonpayable",
-        "type": "function"
-    }
-];
+const MARKETPLACE_ABI = MarketContractData.abi;
+const NFT_ABI = NFTContractData.abi;
 
 interface RentListingModalProps {
     isOpen: boolean;

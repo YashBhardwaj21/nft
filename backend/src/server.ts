@@ -1,6 +1,4 @@
-import dotenv from 'dotenv';
-// Load environment variables immediately before any other imports
-dotenv.config();
+import 'dotenv/config'; // Load env vars before other imports
 
 import express, { Application, Request, Response } from 'express';
 import cors from 'cors';
@@ -64,14 +62,20 @@ const startServer = async () => {
 
     try {
         // 1. Connect to Database (with retry)
+        console.log('⏳ Connecting to DB...');
         await connectDBWithRetry();
+        console.log('✅ DB Connected step done');
         (app as any).set('dbConnected', true);
 
         // 2. Run Crypto Self-Test (non-fatal unless STRICT_CRYPTO_SELFTEST is true)
+        console.log('⏳ Running Crypto Self-Test...');
         await CryptoService.selfTest();
+        console.log('✅ Crypto Self-Test done');
 
         // 3. Start Background Workers (Chain Listener & Projector)
+        console.log('⏳ Starting Background Workers...');
         await startWorkers();
+        console.log('✅ Background Workers started');
 
         // 4. Listen
         app.listen(PORT, () => {

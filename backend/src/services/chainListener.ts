@@ -68,8 +68,13 @@ export class ChainListener {
 
             (globalThis as any).ABIS_LOADED = true;
             await this.loadState();
-            await this.backfillEvents();
-            await this.startRealtimePolling();
+
+            // Run backfill in the background so it doesn't block the API server startup
+            this.backfillEvents().then(() => {
+                return this.startRealtimePolling();
+            }).catch(err => {
+                console.error('❌ Chain Listener background sync failed:', err);
+            });
         } catch (error) {
             console.error('âŒ Chain Listener initialization failed:', error);
             this.isRunning = false;

@@ -8,6 +8,7 @@ export default defineConfig({
     resolve: {
         alias: {
             "@": path.resolve(__dirname, "./src"),
+            "@shared": path.resolve(__dirname, "../shared"),
         },
     },
     server: {
@@ -16,7 +17,7 @@ export default defineConfig({
         proxy: {
             // Forward /api requests to backend — works seamlessly with ngrok
             '/api': {
-                target: 'http://localhost:5000',
+                target: 'http://127.0.0.1:5000',
                 changeOrigin: true,
             },
         },
