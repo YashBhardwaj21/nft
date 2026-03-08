@@ -70,20 +70,37 @@ typings/
 # Yarn Integrity file
 .yarn-integrity
 
-# dotenv environment variables file
+# ── Environment / Secrets — NEVER commit any of these ────────────────────────
+# Root-level
 .env
-.env.test
-.env.production
-.env.local
-.env.*.local
-.env.hardhat
+.env.*
+!.env.example
 
-# Explicit per-layer env files — never commit these
+# Backend layer
 backend/.env
-frontend/.env
+backend/.env.*
+!backend/.env.example
 
-# Allow .env.example files to be committed
-!*.example
+# Frontend layer
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
+
+# Hardhat / deployment secrets
+.env.hardhat
+.env.hardhat.*
+
+# Extra safety: any .env.local or .env.production anywhere in the tree
+**/.env.local
+**/.env.production
+**/.env.test
+**/.env.*.local
+
+# Allow ALL .env.example files to be committed (overrides all rules above)
+!**/.env.example
+!*.env.example
+# ─────────────────────────────────────────────────────────────────────────────
+
 
 # Parcel-bundler cache (https://parceljs.org/)
 .cache

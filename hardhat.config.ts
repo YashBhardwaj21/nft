@@ -1,6 +1,7 @@
 import dotenv from "dotenv";
 import type { HardhatUserConfig } from "hardhat/config";
 import "@nomicfoundation/hardhat-ethers";
+import "@typechain/hardhat";
 
 // Load deployment secrets from .env (root), or fallback to backend/.env
 import { existsSync } from "fs";
@@ -35,6 +36,10 @@ const config: HardhatUserConfig = {
     paths: {
         sources: "./contracts",
         artifacts: "./artifacts",
+    },
+    typechain: {
+        outDir: 'typechain-types',
+        target: 'ethers-v6',
     },
 };
 

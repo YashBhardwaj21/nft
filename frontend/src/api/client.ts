@@ -31,6 +31,15 @@ api.interceptors.response.use(
     },
     (error) => {
         console.error(`[API RESPONSE ERROR] <= ${error.response?.config?.method?.toUpperCase()} ${error.response?.config?.url} [${error.response?.status}]`, error.response?.data || error.message);
+
+        if (error.response?.status === 401) {
+            // JWT expired or invalid
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            // Dispatch an event to notify WalletConnectButton to reset its attempt state and auto-re-auth
+            window.dispatchEvent(new Event('auth:unauthorized'));
+        }
+
         return Promise.reject(error);
     }
 );
