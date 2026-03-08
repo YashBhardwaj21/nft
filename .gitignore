@@ -77,6 +77,12 @@ typings/
 .env.local
 .env.*.local
 .env.hardhat
+
+# Explicit per-layer env files — never commit these
+backend/.env
+frontend/.env
+
+# Allow .env.example files to be committed
 !*.example
 
 # Parcel-bundler cache (https://parceljs.org/)
