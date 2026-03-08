@@ -1,4 +1,28 @@
-import 'dotenv/config'; // Load env vars before other imports
+import 'dotenv/config'; // Load env vars first — must be the very first import
+
+// ─── Phase 3.2: Validate required env vars before anything else ───────────────
+function validateEnvMirrors(): void {
+    const required = [
+        'MONGODB_URI', 'JWT_SECRET', 'RPC_URL',
+        'CHAIN_ID', 'CONTRACT_ADDRESS', 'MARKETPLACE_ADDRESS',
+    ];
+    const missing = required.filter(k => !process.env[k]);
+    if (missing.length) {
+        console.error('FATAL: Missing required env vars:', missing.join(', '));
+        console.error('Copy backend/.env.example → backend/.env and fill in all values.');
+        process.exit(1);
+    }
+    const addrRegex = /^0x[0-9a-fA-F]{40}$/;
+    for (const key of ['CONTRACT_ADDRESS', 'MARKETPLACE_ADDRESS']) {
+        if (!addrRegex.test(process.env[key]!)) {
+            console.error(`FATAL: ${key} is not a valid Ethereum address: "${process.env[key]}"`);
+            process.exit(1);
+        }
+    }
+    console.log('✅ Env validation passed — all required vars present and valid');
+}
+validateEnvMirrors();
+// ─────────────────────────────────────────────────────────────────────────────
 
 import express, { Application, Request, Response } from 'express';
 import cors from 'cors';
@@ -32,7 +56,7 @@ app.get('/health', (_req: Request, res: Response) => {
         timestamp: new Date().toISOString(),
         dbConnected,
         cryptoOk: (globalThis as any).CRYPTO_SELFTEST_OK,
-        abisLoaded: (globalThis as any).ABIS_LOADED
+        abisLoaded: (globalThis as any).ABIS_LOADED,
     });
 });
 
@@ -49,14 +73,14 @@ app.use('/admin', adminRoutes);
 app.use('*', (req: Request, res: Response) => {
     res.status(404).json({
         status: 'error',
-        message: `Route ${req.originalUrl} not found`
+        message: `Route ${req.originalUrl} not found`,
     });
 });
 
 // Error handling middleware
 app.use(errorHandler);
 
-// Start server
+// ─── Phase 3.3: Start server — HTTP port binds first, workers start after ─────
 const startServer = async () => {
     console.log('🚀 Starting NFT Rental Marketplace API...');
 
@@ -64,28 +88,31 @@ const startServer = async () => {
         // 1. Connect to Database (with retry)
         console.log('⏳ Connecting to DB...');
         await connectDBWithRetry();
-        console.log('✅ DB Connected step done');
+        console.log('✅ DB Connected');
         (app as any).set('dbConnected', true);
 
         // 2. Run Crypto Self-Test (non-fatal unless STRICT_CRYPTO_SELFTEST is true)
         console.log('⏳ Running Crypto Self-Test...');
         await CryptoService.selfTest();
-        console.log('✅ Crypto Self-Test done');
+        console.log('✅ Crypto Self-Test passed');
 
-        // 3. Start Background Workers (Chain Listener & Projector)
-        console.log('⏳ Starting Background Workers...');
-        await startWorkers();
-        console.log('✅ Background Workers started');
-
-        // 4. Listen
+        // 3. Bind HTTP server FIRST — API is available immediately
         app.listen(PORT, () => {
             console.log(`✅ Server running on port ${PORT} [${process.env.NODE_ENV || 'development'}]`);
         });
+
+        // 4. Background workers start AFTER — failure here does NOT crash the API
+        startWorkers().catch(err => {
+            console.warn('⚠️  Background workers failed to start:', err.message);
+            console.warn('API running without real-time sync — restart to retry');
+        });
+
     } catch (error: any) {
         console.error('❌ FATAL: Failed to start server:', error.message);
         process.exit(1);
     }
 };
+// ─────────────────────────────────────────────────────────────────────────────
 
 startServer();
 

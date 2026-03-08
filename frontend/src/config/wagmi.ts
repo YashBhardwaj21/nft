@@ -20,6 +20,10 @@ const hardhatLocal = {
     rpcUrls: {
         default: { http: ["http://127.0.0.1:8545"] },
     },
+    blockExplorers: {
+        default: { name: "None", url: "" },
+    },
+    testnet: true,
 } as const;
 
 const isLocal = import.meta.env.VITE_SUPPORTED_CHAIN_ID === "31337";

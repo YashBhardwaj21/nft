@@ -1,6 +1,7 @@
 import { getDynamicProvider } from '../utils/provider.js';
 import { chainListener } from '../services/chainListener.js';
 import { createProjector } from '../services/projector.js';
+import { scanExpiredRentals } from './expiryScanner.js';
 
 const projector = createProjector();
 
@@ -16,6 +17,10 @@ export async function startWorkers() {
 
         // Start Projector
         await projector.start(provider);
+
+        // Start Expiry Scanner — runs every 5 minutes to mark expired rentals
+        setInterval(scanExpiredRentals, 5 * 60 * 1000);
+        console.log('[ExpiryScanner] Started — scanning every 5 minutes');
 
         console.log('✅ Background workers initialized');
     } catch (err: any) {

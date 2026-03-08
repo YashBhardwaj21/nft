@@ -20,7 +20,7 @@ export interface Rental extends mongoose.Document {
     expiresAt?: Date;
 
     // Lifecycle
-    status: 'PENDING' | 'ACTIVE';
+    status: 'PENDING' | 'ACTIVE' | 'EXPIRED';
 
     // Idempotency
     txHash: string;
@@ -47,7 +47,7 @@ const rentalSchema = new mongoose.Schema<Rental>({
 
     status: {
         type: String,
-        enum: ['PENDING', 'ACTIVE'],
+        enum: ['PENDING', 'ACTIVE', 'EXPIRED'],
         default: 'PENDING'
     },
 

@@ -99,18 +99,22 @@ export const prepareMint = async (req: Request, res: Response) => {
         );
 
         // ALWAYS write to DraftModel, not NFTModel
-        const draft = await DraftModel.create({
-            metadataHash,
-            creator: walletAddress,
-            name,
-            description,
-            image: imageUrl,
-            attributes: metadataObj.attributes,
-            fileHash,
-            tokenURI: metadataUrl,
-            status: 'PREPARED',
-            expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000) // 48h
-        });
+        const draft = await DraftModel.findOneAndUpdate(
+            { creator: walletAddress },
+            {
+                metadataHash,
+                creator: walletAddress,
+                name,
+                description,
+                image: imageUrl,
+                attributes: metadataObj.attributes,
+                fileHash,
+                tokenURI: metadataUrl,
+                status: 'PREPARED',
+                expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000) // 48h
+            },
+            { upsert: true, new: true }
+        );
 
         res.status(201).json({
             status: 'success',

@@ -9,6 +9,7 @@
         "dev:all": "concurrently \"npm run dev:frontend\" \"npm run dev:backend\"",
         "build": "cd frontend && npm run build && cd ../backend && npm run build",
         "compile": "npx hardhat compile",
+        "deploy:local": "npx hardhat run scripts/deploy.ts --network localhost",
         "deploy:sepolia": "npx hardhat run scripts/deploy.ts --network sepolia",
         "rebuild:projector": "ts-node scripts/rebuildProjector.ts"
     },

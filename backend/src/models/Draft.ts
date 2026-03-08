@@ -3,7 +3,7 @@ import mongoose from 'mongoose';
 const draftSchema = new mongoose.Schema({
     // WORKFLOW IDENTITY
     metadataHash: { type: String, required: true, index: true },
-    creator: { type: String, required: true, lowercase: true, index: true },
+    creator: { type: String, required: true, lowercase: true, unique: true, sparse: true },
 
     // UI DATA
     name: { type: String, required: true },

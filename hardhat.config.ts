@@ -22,9 +22,14 @@ if (!DEPLOYER_KEY) {
 const config: HardhatUserConfig = {
     solidity: "0.8.20",
     networks: {
+        localhost: {
+            url: 'http://127.0.0.1:8545',
+            chainId: 31337,
+        },
         sepolia: {
             url: SEPOLIA_RPC,
             accounts: DEPLOYER_KEY ? [DEPLOYER_KEY] : [],
+            chainId: 11155111,
         },
     },
     paths: {
