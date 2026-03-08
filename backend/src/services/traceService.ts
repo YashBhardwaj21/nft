@@ -2,13 +2,13 @@ import { ethers } from 'ethers';
 import { keccak256 } from '../crypto/keccak256.js';
 import { recoverAddress, publicKeyToAddress } from '../crypto/ecdsa.js';
 
-const SEPOLIA_RPC = process.env.SEPOLIA_RPC || "https://ethereum-sepolia-rpc.publicnode.com";
+const TARGET_RPC = process.env.RPC_URL || process.env.SEPOLIA_RPC || "https://ethereum-sepolia-rpc.publicnode.com";
 
 export class TraceService {
     private provider: ethers.JsonRpcProvider;
 
     constructor() {
-        this.provider = new ethers.JsonRpcProvider(SEPOLIA_RPC, undefined, { batchMaxCount: 1 });
+        this.provider = new ethers.JsonRpcProvider(TARGET_RPC, undefined, { batchMaxCount: 1 });
     }
 
     /**

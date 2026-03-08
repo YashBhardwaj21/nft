@@ -11,7 +11,7 @@ import { useWriteContract, useAccount } from 'wagmi';
 import { waitForTransactionReceipt } from '@wagmi/core';
 import { parseEther } from 'viem';
 import { config } from "../../config/wagmi";
-import { ensureSepolia } from "../../lib/ensureCorrectNetwork";
+import { ensureCorrectNetwork } from "../../lib/ensureCorrectNetwork";
 import { verifyOwnership } from "../../lib/checkOwnership";
 
 import MarketContractData from '@shared/DAOMarketplaceMarket.json';
@@ -77,8 +77,8 @@ const RentListingModal = ({ isOpen, onClose, nft, onSuccess }: RentListingModalP
 
             // 1. Preflight Checks
             console.log("[RentListingModal] Running preflight checks...");
-            await ensureSepolia();
-            console.log("[RentListingModal] Sepolia network verified");
+            await ensureCorrectNetwork();
+            console.log("[RentListingModal] Target network verified");
 
             await verifyOwnership(contractAddress as Extract<`0x${string}`, string>, BigInt(nft.tokenId), address as Extract<`0x${string}`, string>);
             console.log("[RentListingModal] Ownership verified");
